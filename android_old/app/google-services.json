@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "520770380974",
+    "project_id": "flostay-ce499",
+    "storage_bucket": "flostay-ce499.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:520770380974:android:dec197c05daf3ed5da793f",
+        "android_client_info": {
+          "package_name": "com.example.flostay"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB5HJBgiVfePyqazmZGQMxLnoo4CKJJk8c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
