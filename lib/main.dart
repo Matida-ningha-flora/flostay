@@ -18,13 +18,14 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    
+
     // Initialisation de Supabase avec vos informations
     await Supabase.initialize(
       url: 'https://epdzwqysuzvjyadmcuwk.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVwZHp3cXlzdXp2anlhZG1jdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxMzQ2NDAsImV4cCI6MjA2ODcxMDY0MH0.b0ymXP4w2sjwlhoqge2JGylp_JegVhdgjxjPFwo7r7Q',
+      anonKey:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVwZHp3cXlzdXp2anlhZG1jdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxMzQ2NDAsImV4cCI6MjA2ODcxMDY0MH0.b0ymXP4w2sjwlhoqge2JGylp_JegVhdgjxjPFwo7r7Q',
     );
-    
+
     debugPrint("✅ Firebase et Supabase initialisés avec succès");
   } catch (e) {
     debugPrint("❌ Erreur d'initialisation Firebase/Supabase : $e");
@@ -85,7 +86,10 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFF9B4610), width: 2),
           ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 16,
+            horizontal: 16,
+          ),
           filled: true,
           fillColor: Colors.grey[50],
         ),
@@ -118,7 +122,7 @@ class AuthGate extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isWeb = constraints.maxWidth > 600;
-        
+
         return StreamBuilder<User?>(
           stream: FirebaseAuth.instance.authStateChanges(),
           builder: (context, snapshot) {
@@ -142,7 +146,9 @@ class AuthGate extends StatelessWidget {
                   }
 
                   // Si l'utilisateur n'existe plus dans Firestore, le déconnecter
-                  if (snapshotRole.hasError || !snapshotRole.hasData || !snapshotRole.data!.exists) {
+                  if (snapshotRole.hasError ||
+                      !snapshotRole.hasData ||
+                      !snapshotRole.data!.exists) {
                     // Déconnecter l'utilisateur car son compte a été supprimé
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       FirebaseAuth.instance.signOut();
@@ -157,7 +163,7 @@ class AuthGate extends StatelessWidget {
                         ),
                       );
                     });
-                    
+
                     return const LoginScreen();
                   }
 
@@ -205,10 +211,7 @@ class AuthGate extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFF8F0E5),
-              Color(0xFFFDF8F3),
-            ],
+            colors: [Color(0xFFF8F0E5), Color(0xFFFDF8F3)],
           ),
         ),
         child: Center(
@@ -222,7 +225,9 @@ class AuthGate extends StatelessWidget {
               ),
               SizedBox(height: isWeb ? 30 : 20),
               CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(const Color(0xFF9B4610)),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  const Color(0xFF9B4610),
+                ),
                 strokeWidth: 4,
               ),
               SizedBox(height: isWeb ? 20 : 15),
