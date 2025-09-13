@@ -1,12 +1,14 @@
 import 'dart:io';
+import 'package:flostay/pages/language_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:provider/provider.dart';
+
+import 'app_localizations.dart';
+import 'language_provider.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -24,10 +26,29 @@ class _ProfilePageState extends State<ProfilePage> {
   bool isSavingProfile = false;
   bool isUploadingImage = false;
 
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
-    _loadProfileData();
+    // Ne pas charger les données qui dépendent du contexte ici
+    // Le chargement sera fait dans didChangeDependencies
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!isLoading && userName.isEmpty) {
+      _loadProfileData();
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadProfileData() async {
@@ -44,11 +65,15 @@ class _ProfilePageState extends State<ProfilePage> {
             profileImageUrl = doc.data()?["profileImage"];
             userName = doc.data()?["name"] ?? "";
             userPhone = doc.data()?["phone"] ?? "";
+            
+            _nameController.text = userName;
+            _phoneController.text = userPhone;
           });
         }
       } catch (e) {
         print("Erreur de chargement: $e");
-        _showErrorSnackBar("Erreur de chargement des données");
+        // Utilisation directe de la traduction sans dépendre du contexte
+        _showErrorSnackBar("Erreur de chargement du profil");
       } finally {
         setState(() => isLoading = false);
       }
@@ -68,24 +93,31 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() => isUploadingImage = true);
 
       try {
-        File file = File(pickedFile.path);
+        // Lire le fichier en bytes
+        final bytes = await pickedFile.readAsBytes();
+        final fileSize = bytes.length;
         
-        // Vérification de la taille du fichier
-        if (await file.length() > 5 * 1024 * 1024) { // 5MB max
-          _showErrorSnackBar("L'image est trop grande (max 5MB)");
+        if (fileSize > 5 * 1024 * 1024) {
+          _showErrorSnackBar("L'image est trop volumineuse (max 5MB)");
           setState(() => isUploadingImage = false);
           return;
         }
         
-        // Upload vers Supabase Storage
-        final String filePath = '${user!.uid}/profile.jpg';
+        final String filePath = '${user!.uid}/profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
         
+        print("Tentative d'upload vers Supabase: $filePath");
+        
+        // Upload vers Supabase Storage en utilisant les bytes
         await Supabase.instance.client.storage
             .from('profile_images')
-            .upload(filePath, file, fileOptions: FileOptions(
-              contentType: 'image/jpeg',
-              upsert: true,
-            ));
+            .uploadBinary(
+              filePath, 
+              bytes,
+              fileOptions: FileOptions(
+                contentType: 'image/jpeg',
+                upsert: true,
+              ),
+            );
 
         // Récupérer l'URL publique
         final String imageUrl = Supabase.instance.client.storage
@@ -98,14 +130,24 @@ class _ProfilePageState extends State<ProfilePage> {
             .doc(user!.uid)
             .set({
           "profileImage": imageUrl,
+          "updatedAt": FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
-        setState(() => profileImageUrl = imageUrl);
+        setState(() => profileImageUrl = "$imageUrl?t=${DateTime.now().millisecondsSinceEpoch}");
         
         _showSuccessSnackBar("Photo de profil mise à jour");
       } catch (e) {
-        print("Erreur d'upload: $e");
-        _showErrorSnackBar("Erreur lors de la mise à jour de la photo: ${e.toString()}");
+        print("Erreur détaillée: $e");
+        
+        if (e.toString().contains('row-level security policy')) {
+          _showErrorSnackBar("Erreur de sécurité Supabase");
+          _showSupabaseSetupInstructions();
+        } else if (e.toString().contains('403')) {
+          _showErrorSnackBar("Accès refusé");
+          _showSupabaseSetupInstructions();
+        } else {
+          _showErrorSnackBar("Erreur de mise à jour: ${e.toString()}");
+        }
       } finally {
         setState(() => isUploadingImage = false);
       }
@@ -138,10 +180,40 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Future<void> _editProfile() async {
-    final nameController = TextEditingController(text: userName);
-    final phoneController = TextEditingController(text: userPhone);
+  void _showSupabaseSetupInstructions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Configuration Supabase requise"),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Veuillez configurer correctement Supabase pour utiliser cette fonctionnalité."),
+              const SizedBox(height: 15),
+              const Text("1. Allez dans l'interface Supabase", style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text("2. Activez le stockage pour les images de profil"),
+              const Text("3. Configurez les politiques RLS:"),
+              const SizedBox(height: 10),
+              const Text("- Sélectionnez 'Enable read access for authenticated users only'", style: TextStyle(fontSize: 12)),
+              const Text("- Créez une politique d'insertion pour les utilisateurs authentifiés", style: TextStyle(fontSize: 12)),
+              const Text("- Créez une politique de mise à jour pour les propriétaires des fichiers", style: TextStyle(fontSize: 12)),
+              const Text("- Créez une politique de suppression pour les propriétaires des fichiers", style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Compris"),
+          ),
+        ],
+      ),
+    );
+  }
 
+  Future<void> _editProfile() async {
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -152,7 +224,7 @@ class _ProfilePageState extends State<ProfilePage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: nameController,
+                controller: _nameController,
                 decoration: InputDecoration(
                   labelText: "Nom complet",
                   labelStyle: const TextStyle(color: Color(0xFF6D5D4F)),
@@ -168,7 +240,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 15),
               TextField(
-                controller: phoneController,
+                controller: _phoneController,
                 decoration: InputDecoration(
                   labelText: "Téléphone",
                   labelStyle: const TextStyle(color: Color(0xFF6D5D4F)),
@@ -193,7 +265,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (nameController.text.isEmpty) {
+              if (_nameController.text.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text("Le nom est requis"),
@@ -204,29 +276,7 @@ class _ProfilePageState extends State<ProfilePage> {
               }
 
               Navigator.pop(context);
-              setState(() => isSavingProfile = true);
-              
-              try {
-                await FirebaseFirestore.instance
-                    .collection("users")
-                    .doc(user!.uid)
-                    .set({
-                  "name": nameController.text,
-                  "phone": phoneController.text,
-                }, SetOptions(merge: true));
-
-                setState(() {
-                  userName = nameController.text;
-                  userPhone = phoneController.text;
-                });
-                
-                _showSuccessSnackBar("Profil mis à jour avec succès!");
-              } catch (e) {
-                print("Erreur de sauvegarde: $e");
-                _showErrorSnackBar("Erreur lors de la mise à jour du profil");
-              } finally {
-                setState(() => isSavingProfile = false);
-              }
+              await _saveProfile();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF9B4610),
@@ -241,46 +291,37 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // Méthode pour gérer l'erreur d'index Firestore
-  Widget _buildErrorIndexMessage() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(top: 10),
-      decoration: BoxDecoration(
-        color: Colors.orange[100],
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.orange),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Erreur de configuration",
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "Une configuration est nécessaire dans Firebase pour afficher vos réservations.",
-            style: TextStyle(color: Colors.orange),
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton(
-            onPressed: () {
-              // Ouvrir le lien pour créer l'index
-              // _loadProfileData();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-            ),
-            child: const Text("Créer l'index"),
-          ),
-        ],
-      ),
-    );
+  Future<void> _saveProfile() async {
+    setState(() => isSavingProfile = true);
+    
+    try {
+      await FirebaseFirestore.instance
+          .collection("users")
+          .doc(user!.uid)
+          .set({
+        "name": _nameController.text,
+        "phone": _phoneController.text,
+        "updatedAt": FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      setState(() {
+        userName = _nameController.text;
+        userPhone = _phoneController.text;
+      });
+      
+      _showSuccessSnackBar("Profil mis à jour");
+    } catch (e) {
+      print("Erreur de sauvegarde: $e");
+      _showErrorSnackBar("Erreur de mise à jour");
+    } finally {
+      setState(() => isSavingProfile = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final languageProvider = Provider.of<LanguageProvider>(context, listen: false);
+    
     if (user == null) {
       return Scaffold(
         body: Container(
@@ -323,7 +364,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Mon Profil"),
+        title: const Text("Mon profil"),
         centerTitle: true,
         backgroundColor: const Color(0xFF9B4610),
         elevation: 0,
@@ -462,7 +503,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                 ),
                               )
                             : const Icon(Icons.edit),
-                        label: Text(isSavingProfile ? "Enregistrement..." : "Modifier mon profil"),
+                        label: Text(isSavingProfile ? "Enregistrement..." : "Modifier le profil"),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: const Color(0xFF9B4610),
@@ -477,141 +518,52 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     const SizedBox(height: 30),
 
-                    // Section réservations
-                    const Text(
-                      "Mes Réservations",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF4A2A10),
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-                    StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection("reservations")
-                          .where("userId", isEqualTo: user!.uid)
-                          .orderBy("date", descending: true)
-                          .snapshots(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFF9B4610),
+                    // Section changement de langue
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Langue",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF4A2A10),
                             ),
-                          );
-                        }
-                        
-                        if (snapshot.hasError) {
-                          // Vérifier si c'est une erreur d'index
-                          if (snapshot.error.toString().contains("index")) {
-                            return _buildErrorIndexMessage();
-                          }
-                          
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.error, size: 50, color: Colors.red),
-                                const SizedBox(height: 16),
-                                Text(
-                                  "Erreur de chargement",
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  snapshot.error.toString(),
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        
-                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                          return Container(
-                            padding: const EdgeInsets.all(20),
-                            margin: const EdgeInsets.only(top: 10),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF8E9DD),
-                              borderRadius: BorderRadius.circular(15),
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.grey.shade300),
                             ),
-                            child: Column(
-                              children: [
-                                Icon(Icons.hotel, size: 50, color: Colors.grey.shade400),
-                                const SizedBox(height: 10),
-                                const Text(
-                                  "Aucune réservation trouvée",
-                                  style: TextStyle(fontSize: 16),
+                            child: DropdownButton<String>(
+                              value: languageProvider.currentLocale.languageCode,
+                              isExpanded: true,
+                              underline: const SizedBox(),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'fr',
+                                  child: Text("Français"),
                                 ),
-                                const Text(
-                                  "Vos futures réservations apparaîtront ici",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: Colors.grey),
+                                DropdownMenuItem(
+                                  value: 'en',
+                                  child: Text("Anglais"),
                                 ),
                               ],
+                              onChanged: (String? newValue) {
+                                if (newValue != null) {
+                                  languageProvider.setLocale(Locale(newValue));
+                                  _showSuccessSnackBar("Langue changée en ${newValue == 'fr' ? 'Français' : 'Anglais'}");
+                                }
+                              },
                             ),
-                          );
-                        }
-
-                        final docs = snapshot.data!.docs;
-                        return ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: docs.length,
-                          itemBuilder: (context, index) {
-                            final data = docs[index].data() as Map<String, dynamic>;
-                            final date = data['date'] is Timestamp
-                                ? (data['date'] as Timestamp).toDate()
-                                : DateTime.now();
-                            final dateStr = DateFormat('dd/MM/yyyy').format(date);
-                            final price = data['price'] ?? "0";
-
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 15),
-                              elevation: 2,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 20, vertical: 10),
-                                leading: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF9B4610).withOpacity(0.1),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.hotel,
-                                      color: Color(0xFF9B4610)),
-                                ),
-                                title: Text(
-                                  data['roomType']?.toString() ?? "Chambre inconnue",
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 5),
-                                    Text("Date: $dateStr"),
-                                    Text(
-                                      "$price FCFA",
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.green,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                trailing: const Icon(Icons.chevron_right,
-                                    color: Color(0xFF9B4610)),
-                              ),
-                            );
-                          },
-                        );
-                      },
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

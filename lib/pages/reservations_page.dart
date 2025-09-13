@@ -20,7 +20,7 @@ class ReservationsPage extends StatelessWidget {
       "features": ["Lit Queen", "Balcon", "Wi-Fi", "Petit déjeuner inclus"],
     },
     {
-      "title": "Suite Executive",
+      "title": "Chambre Deluxe",
       "price": 78580,
       "image": "assets/images/deluxe.jpg",
       "description": "Espace de vie séparé avec coin salon et équipements haut de gamme , Petit dejeuner et taxe de sejour inclus.",

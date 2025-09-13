@@ -518,11 +518,7 @@ class _ReservationFormPageState extends State<ReservationFormPage> {
         ],
         
         const SizedBox(height: 16),
-        const Text(
-          "Note: Cette fonctionnalité est une simulation. En production, vous intégreriez une vraie solution de paiement.",
-          style: TextStyle(fontSize: 12, color: Colors.grey),
-          textAlign: TextAlign.center,
-        ),
+        
       ],
     );
   }

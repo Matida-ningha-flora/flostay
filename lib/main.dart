@@ -3,23 +3,23 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:provider/provider.dart';
 
 import 'auth/login_screen.dart';
 import 'pages/client_client.dart';
 import 'pages/reception_page.dart';
 import 'pages/admin_page.dart';
-import 'firebase_options.dart'; // généré par flutterfire configure
+import 'pages/language_provider.dart';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    // Initialisation de Firebase
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    // Initialisation de Supabase avec vos informations
     await Supabase.initialize(
       url: 'https://epdzwqysuzvjyadmcuwk.supabase.co',
       anonKey:
@@ -39,80 +39,94 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'FLOSTAY',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primaryColor: const Color(0xFF9B4610),
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF9B4610),
-          primary: const Color(0xFF9B4610),
-          secondary: const Color(0xFF4A2A10),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF9B4610),
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-          iconTheme: IconThemeData(color: Colors.white),
-          elevation: 4,
-          centerTitle: true,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF9B4610),
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => LanguageProvider()),
+      ],
+      child: Builder(
+        builder: (context) {
+          final languageProvider = Provider.of<LanguageProvider>(context, listen: true);
+          
+          return MaterialApp(
+            title: 'FLOSTAY',
+            debugShowCheckedModeBanner: false,
+            locale: languageProvider.currentLocale,
+            theme: ThemeData(
+              primaryColor: const Color(0xFF9B4610),
+              scaffoldBackgroundColor: Colors.white,
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF9B4610),
+                primary: const Color(0xFF9B4610),
+                secondary: const Color(0xFF4A2A10),
+              ),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: Color(0xFF9B4610),
+                titleTextStyle: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+                iconTheme: IconThemeData(color: Colors.white),
+                elevation: 4,
+                centerTitle: true,
+              ),
+              elevatedButtonTheme: ElevatedButtonThemeData(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9B4610),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  elevation: 5,
+                  shadowColor: Colors.orange[300],
+                ),
+              ),
+              inputDecorationTheme: InputDecorationTheme(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Colors.grey),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF9B4610), width: 2),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 16,
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+              textTheme: const TextTheme(
+                bodyMedium: TextStyle(color: Colors.black87, fontSize: 16),
+                bodyLarge: TextStyle(color: Colors.black87, fontSize: 18),
+                titleLarge: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                ),
+                titleMedium: TextStyle(
+                  color: Color(0xFF9B4610),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+              useMaterial3: true,
             ),
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-            textStyle: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-            elevation: 5,
-            shadowColor: Colors.orange[300],
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Colors.grey),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Color(0xFF9B4610), width: 2),
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            vertical: 16,
-            horizontal: 16,
-          ),
-          filled: true,
-          fillColor: Colors.grey[50],
-        ),
-        textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: Colors.black87, fontSize: 16),
-          bodyLarge: TextStyle(color: Colors.black87, fontSize: 18),
-          titleLarge: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-          titleMedium: TextStyle(
-            color: Color(0xFF9B4610),
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-          ),
-        ),
-        useMaterial3: true,
+            home: const AuthGate(),
+          );
+        },
       ),
-      home: const AuthGate(),
     );
   }
 }
+
+// Le reste du code (AuthGate) reste inchangé
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});

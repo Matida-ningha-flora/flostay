@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flostay/pages/alert_page.dart';
 import 'package:flostay/pages/chat_page.dart';
 import 'package:flostay/pages/reservations_page.dart';
 import 'package:flostay/pages/commander_page.dart';
@@ -9,7 +10,7 @@ import 'package:flostay/pages/checkin_checkout_page.dart';
 import 'package:flostay/pages/rating_page.dart';
 import 'package:flostay/pages/reservation_history_page.dart';
 import 'package:flostay/pages/invoices_page.dart';
-
+import 'package:flostay/pages/suivi_commandes_page.dart';
 
 class ClientClient extends StatefulWidget {
   const ClientClient({super.key});
@@ -20,8 +21,9 @@ class ClientClient extends StatefulWidget {
 
 class _ClientClientState extends State<ClientClient> {
   int _currentIndex = 0;
-  String userName = "";
+  String userName = "Nom non défini";
   String userEmail = "";
+  bool _isLoading = true;
 
   final List<Widget> _pages = [
     const HomePage(),
@@ -37,19 +39,36 @@ class _ClientClientState extends State<ClientClient> {
   }
 
   Future<void> _loadUserData() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      final doc = await FirebaseFirestore.instance
-          .collection("users")
-          .doc(user.uid)
-          .get();
-          
-      if (doc.exists) {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final doc = await FirebaseFirestore.instance
+            .collection("users")
+            .doc(user.uid)
+            .get();
+            
+        if (doc.exists && doc.data() != null) {
+          setState(() {
+            userName = doc.data()?["name"] ?? "Nom non défini";
+            userEmail = user.email ?? "";
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            userEmail = user.email ?? "";
+            _isLoading = false;
+          });
+        }
+      } else {
         setState(() {
-          userName = doc.data()?["name"] ?? "";
-          userEmail = user.email ?? "";
+          _isLoading = false;
         });
       }
+    } catch (e) {
+      print("Erreur lors du chargement des données utilisateur: $e");
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -78,7 +97,7 @@ class _ClientClientState extends State<ClientClient> {
                 ],
               ),
               actions: [
-                if (userName.isNotEmpty)
+                if (!_isLoading)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     child: Row(
@@ -113,7 +132,9 @@ class _ClientClientState extends State<ClientClient> {
               ],
             )
           : null,
-      body: _pages[_currentIndex],
+      body: _isLoading 
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF9B4610)))
+          : _pages[_currentIndex],
       bottomNavigationBar: isWeb 
           ? null 
           : Container(
@@ -190,7 +211,7 @@ class _ClientClientState extends State<ClientClient> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  if (userName.isNotEmpty) ...[
+                  if (!_isLoading) ...[
                     const SizedBox(height: 10),
                     Text(
                       userName,
@@ -286,11 +307,14 @@ class HomePage extends StatelessWidget {
         Navigator.push(context, MaterialPageRoute(
           builder: (_) => const CommanderPage()));
       }, color: const Color(0xFFF4A261)),
-      _HomeOption(Icons.restaurant, 'suivie des commandes', () {
+      _HomeOption(Icons.track_changes, 'Suivi des commandes', () {
         Navigator.push(context, MaterialPageRoute(
-          builder: (_) => const CommanderPage()));
+          builder: (_) => const SuiviCommandesPage()));
       }, color: const Color(0xFF264653)),
-    
+      _HomeOption(Icons.warning, 'Signaler une alerte', () {
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => const AlertPage()));
+      }, color: const Color(0xFFE76F51)),
       _HomeOption(Icons.star, 'Noter mon séjour', () {
         Navigator.push(context, MaterialPageRoute(
           builder: (_) => const RatingPage()));
@@ -299,7 +323,6 @@ class HomePage extends StatelessWidget {
         Navigator.push(context, MaterialPageRoute(
           builder: (_) => const InvoicesPage()));
       }, color: const Color(0xFF2A9D8F)),
-     
     ];
 
     return Container(
@@ -374,7 +397,7 @@ class HomePage extends StatelessWidget {
             ),
           ),
         ],
-      ),
+      )
     );
   }
 

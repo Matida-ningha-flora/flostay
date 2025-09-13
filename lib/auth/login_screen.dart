@@ -1,6 +1,7 @@
-import 'package:flostay/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'auth_gate.dart';
 import 'register_screen.dart';
 
@@ -15,9 +16,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final AuthService _authService = AuthService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: ['email', 'profile'],
+  );
   bool _loading = false;
   bool _obscurePassword = true;
+  bool _googleLoading = false;
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -25,9 +30,9 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
-      await _authService.signInWithEmail(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
+      await _auth.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
       );
     } on FirebaseAuthException catch (e) {
       String errorMessage;
@@ -69,6 +74,43 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _signInWithGoogle() async {
+    setState(() => _googleLoading = true);
+    
+    try {
+      // Configuration spécifique pour le web
+      if (kIsWeb) {
+        final GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        await _auth.signInWithPopup(googleProvider);
+      } else {
+        // Pour mobile
+        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+        
+        if (googleUser == null) {
+          setState(() => _googleLoading = false);
+          return;
+        }
+
+        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        final AuthCredential credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        await _auth.signInWithCredential(credential);
+      }
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur de connexion Google: ${error.toString()}"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _googleLoading = false);
+    }
+  }
+
   Future<void> _resetPassword() async {
     final emailController = TextEditingController();
     final theme = Theme.of(context);
@@ -103,7 +145,7 @@ class _LoginScreenState extends State<LoginScreen> {
               }
 
               try {
-                await _authService.resetPassword(emailController.text.trim());
+                await _auth.sendPasswordResetEmail(email: emailController.text.trim());
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text("Email de réinitialisation envoyé!"),
@@ -311,6 +353,104 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ),
                                         )
                                       : const Text("Se connecter"),
+                                ),
+                              ),
+
+                              const SizedBox(height: 20),
+                              
+                              // Divider avec "ou"
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Divider(
+                                      thickness: 1,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    child: Text(
+                                      "OU",
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Divider(
+                                      thickness: 1,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 20),
+                              
+                              // Bouton Google
+                              SizedBox(
+                                width: double.infinity,
+                                height: 50,
+                                child: ElevatedButton(
+                                  onPressed: _googleLoading ? null : _signInWithGoogle,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black87,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(color: Colors.grey[300]!),
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  child: _googleLoading
+                                      ? const SizedBox(
+                                          width: 24,
+                                          height: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(
+                                              Colors.blue,
+                                            ),
+                                          ),
+                                        )
+                                      : Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            // Logo Google
+                                            Image.asset(
+                                              'assets/images/google_logo.png',
+                                              height: 24,
+                                              width: 24,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                // Fallback si l'image n'est pas trouvée
+                                                return Container(
+                                                  width: 24,
+                                                  height: 24,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Center(
+                                                    child: Text(
+                                                      "G",
+                                                      style: TextStyle(
+                                                        color: Colors.blue[700],
+                                                        fontWeight: FontWeight.bold,
+                                                        fontSize: 16,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Text("Se connecter avec Google"),
+                                          ],
+                                        ),
                                 ),
                               ),
                             ],
