@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:provider/provider.dart';
+import 'package:intl/date_symbol_data_local.dart'; // ✅ CORRECTIF #1
 
 import 'auth/login_screen.dart';
 import 'pages/client_client.dart';
@@ -21,14 +22,18 @@ void main() async {
     );
 
     await Supabase.initialize(
-      url: 'https://epdzwqysuzvjyadmcuwk.supabase.co',
+      url: 'https://qocofmvboukgkbzsbwek.supabase.co',
       anonKey:
-          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVwZHp3cXlzdXp2anlhZG1jdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxMzQ2NDAsImV4cCI6MjA2ODcxMDY0MH0.b0ymXP4w2sjwlhoqge2JGylp_JegVhdgjxjPFwo7r7Q',
+          'sb_publishable_i7sICNpcPSvPMVhAEC2w2A_aEPqlZEq',
     );
 
-    debugPrint("✅ Firebase et Supabase initialisés avec succès");
+    // ✅ CORRECTIF #1 : initialise la locale française
+    // Sans ça → LocaleDataException (écran rouge sur Tableau de bord et Profils clients)
+    await initializeDateFormatting('fr_FR', null);
+
+    debugPrint("✅ Firebase, Supabase et locale fr_FR initialisés");
   } catch (e) {
-    debugPrint("❌ Erreur d'initialisation Firebase/Supabase : $e");
+    debugPrint("❌ Erreur d'initialisation : $e");
   }
 
   runApp(const MyApp());
@@ -45,8 +50,9 @@ class MyApp extends StatelessWidget {
       ],
       child: Builder(
         builder: (context) {
-          final languageProvider = Provider.of<LanguageProvider>(context, listen: true);
-          
+          final languageProvider =
+              Provider.of<LanguageProvider>(context, listen: true);
+
           return MaterialApp(
             title: 'FLOSTAY',
             debugShowCheckedModeBanner: false,
@@ -77,7 +83,8 @@ class MyApp extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 16, horizontal: 24),
                   textStyle: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -93,7 +100,8 @@ class MyApp extends StatelessWidget {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF9B4610), width: 2),
+                  borderSide: const BorderSide(
+                      color: Color(0xFF9B4610), width: 2),
                 ),
                 contentPadding: const EdgeInsets.symmetric(
                   vertical: 16,
@@ -103,8 +111,10 @@ class MyApp extends StatelessWidget {
                 fillColor: Colors.grey[50],
               ),
               textTheme: const TextTheme(
-                bodyMedium: TextStyle(color: Colors.black87, fontSize: 16),
-                bodyLarge: TextStyle(color: Colors.black87, fontSize: 18),
+                bodyMedium:
+                    TextStyle(color: Colors.black87, fontSize: 16),
+                bodyLarge:
+                    TextStyle(color: Colors.black87, fontSize: 18),
                 titleLarge: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -126,8 +136,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// Le reste du code (AuthGate) reste inchangé
-
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -140,12 +148,10 @@ class AuthGate extends StatelessWidget {
         return StreamBuilder<User?>(
           stream: FirebaseAuth.instance.authStateChanges(),
           builder: (context, snapshot) {
-            // Chargement initial
             if (snapshot.connectionState == ConnectionState.waiting) {
               return _buildLoadingScreen(isWeb);
             }
 
-            // Vérifier si l'utilisateur a été supprimé
             if (snapshot.hasData && snapshot.data != null) {
               final userId = snapshot.data!.uid;
 
@@ -155,52 +161,60 @@ class AuthGate extends StatelessWidget {
                     .doc(userId)
                     .get(),
                 builder: (context, snapshotRole) {
-                  if (snapshotRole.connectionState == ConnectionState.waiting) {
+                  if (snapshotRole.connectionState ==
+                      ConnectionState.waiting) {
                     return _buildLoadingScreen(isWeb);
                   }
 
-                  // Si l'utilisateur n'existe plus dans Firestore, le déconnecter
                   if (snapshotRole.hasError ||
                       !snapshotRole.hasData ||
                       !snapshotRole.data!.exists) {
-                    // Déconnecter l'utilisateur car son compte a été supprimé
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       FirebaseAuth.instance.signOut();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            "Votre compte a été supprimé",
-                            style: TextStyle(fontSize: isWeb ? 16 : 14),
-                          ),
+                        const SnackBar(
+                          content: Text("Votre compte a été supprimé"),
                           backgroundColor: Colors.red,
-                          duration: const Duration(seconds: 3),
                         ),
                       );
                     });
-
                     return const LoginScreen();
                   }
 
-                  final role = snapshotRole.data!.get('role');
+                  final role =
+                      snapshotRole.data!.get('role') as String? ?? '';
 
-                  switch (role) {
+                  // ✅ CORRECTIF #2 : gestion de TOUS les rôles possibles
+                  // (avec et sans variantes orthographiques)
+                  switch (role.toLowerCase().trim()) {
                     case 'client':
                       return const ClientClient();
+
+                    // ✅ Accepte 'receptionniste', 'réceptionniste', 'receptionist'
                     case 'receptionniste':
+                    case 'réceptionniste':
+                    case 'receptionist':
                       return const ReceptionPage();
+
                     case 'admin':
                       return const AdminPage();
+
+                    // ✅ Accepte 'cuisine', 'cook', 'kitchen'
+                    case 'cuisine':
+                    case 'cook':
+                    case 'kitchen':
+                      // Remplace par ta page cuisine si elle existe
+                      // return const CuisinePage();
+                      return const AdminPage(); // fallback temporaire
+
                     default:
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         FirebaseAuth.instance.signOut();
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              "Rôle inconnu. Contactez l'administrateur.",
-                              style: TextStyle(fontSize: isWeb ? 16 : 14),
-                            ),
+                                "Rôle inconnu ($role). Contactez l'administrateur."),
                             backgroundColor: Colors.red,
-                            duration: const Duration(seconds: 3),
                           ),
                         );
                       });
@@ -210,7 +224,6 @@ class AuthGate extends StatelessWidget {
               );
             }
 
-            // Utilisateur pas connecté → page de login
             return const LoginScreen();
           },
         );
@@ -238,9 +251,9 @@ class AuthGate extends StatelessWidget {
                 color: const Color(0xFF9B4610),
               ),
               SizedBox(height: isWeb ? 30 : 20),
-              CircularProgressIndicator(
+              const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  const Color(0xFF9B4610),
+                  Color(0xFF9B4610),
                 ),
                 strokeWidth: 4,
               ),

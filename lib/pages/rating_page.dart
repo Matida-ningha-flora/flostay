@@ -1,8 +1,18 @@
-// TODO Implement this library.
+// ============================================================
+// rating_page.dart
+//
+// Page "Noter mon séjour" côté client :
+// - Note globale (étoiles 1-5)
+// - Notes par critère : Chambre, Accueil, Restauration, Propreté, Wifi
+// - Commentaire libre
+// - Sauvegarde dans Firestore collection 'avis'
+// - Vue historique des avis déjà soumis
+// ============================================================
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'package:intl/intl.dart';
 
 class RatingPage extends StatefulWidget {
   const RatingPage({super.key});
@@ -11,413 +21,618 @@ class RatingPage extends StatefulWidget {
   State<RatingPage> createState() => _RatingPageState();
 }
 
-class _RatingPageState extends State<RatingPage> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  List<Map<String, dynamic>> _completedStays = [];
-  bool _isLoading = true;
-  int _selectedStayIndex = -1;
-  double _roomRating = 0;
-  double _serviceRating = 0;
-  double _cleanlinessRating = 0;
-  String _comment = '';
-  bool _isSubmitting = false;
+class _RatingPageState extends State<RatingPage>
+    with SingleTickerProviderStateMixin {
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+  static const _bgLight = Color(0xFFF8F0E5);
+
+  late TabController _tab;
+  final _user = FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
     super.initState();
-    _loadCompletedStays();
+    _tab = TabController(length: 2, vsync: this);
   }
 
-  Future<void> _loadCompletedStays() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
 
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bgLight,
+      appBar: AppBar(
+        backgroundColor: _dark,
+        foregroundColor: Colors.white,
+        title: const Text('Mon séjour',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        elevation: 0,
+        bottom: TabBar(
+          controller: _tab,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white60,
+          tabs: const [
+            Tab(icon: Icon(Icons.star_rounded), text: 'Laisser un avis'),
+            Tab(icon: Icon(Icons.history_rounded), text: 'Mes avis'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tab,
+        children: [
+          _NewRatingTab(user: _user),
+          _MyReviewsTab(user: _user),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// Onglet : Laisser un avis
+// ──────────────────────────────────────────────────────────────
+class _NewRatingTab extends StatefulWidget {
+  final User? user;
+  const _NewRatingTab({required this.user});
+
+  @override
+  State<_NewRatingTab> createState() => _NewRatingTabState();
+}
+
+class _NewRatingTabState extends State<_NewRatingTab> {
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+
+  // Notes par critère
+  final Map<String, int> _notes = {
+    'Chambre': 0,
+    'Accueil': 0,
+    'Restauration': 0,
+    'Propreté': 0,
+    'Wifi': 0,
+  };
+
+  // Icons par critère
+  final Map<String, IconData> _icons = {
+    'Chambre': Icons.hotel_rounded,
+    'Accueil': Icons.people_rounded,
+    'Restauration': Icons.restaurant_rounded,
+    'Propreté': Icons.cleaning_services_rounded,
+    'Wifi': Icons.wifi_rounded,
+  };
+
+  int _noteGlobale = 0;
+  final _commentCtrl = TextEditingController();
+  bool _saving = false;
+  String? _selectedReservation;
+  List<Map<String, dynamic>> _reservations = [];
+  bool _loadingRes = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReservations();
+  }
+
+  @override
+  void dispose() {
+    _commentCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadReservations() async {
+    if (widget.user == null) return;
     try {
-      final snapshot = await _firestore
+      final snap = await FirebaseFirestore.instance
           .collection('reservations')
-          .where('userId', isEqualTo: user.uid)
-          .where('status', isEqualTo: 'checked-out')
-          .where('rated', isEqualTo: false)
-          .orderBy('checkOutDate', descending: true)
+          .where('userId', isEqualTo: widget.user!.uid)
+          .where('status', whereIn: ['checked-out', 'checked-in'])
           .get();
-
-      setState(() {
-        _completedStays = snapshot.docs.map((doc) {
-          final data = doc.data();
-          return {
-            'id': doc.id,
-            ...data,
-          };
-        }).toList();
-        _isLoading = false;
-      });
-    } catch (e) {
-      print("Erreur de chargement des séjours: $e");
-      setState(() => _isLoading = false);
+      final list = snap.docs.map((d) {
+        final data = d.data();
+        return {
+          'id': d.id,
+          'label': '${data['roomType'] ?? 'Chambre'} — ${data['checkInDate'] ?? ''}',
+        };
+      }).toList();
+      if (mounted) setState(() { _reservations = list; _loadingRes = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loadingRes = false);
     }
   }
 
-  Future<void> _submitRating() async {
-    if (_selectedStayIndex == -1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez sélectionner un séjour à noter'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+  double get _moyenne {
+    final vals = _notes.values.where((v) => v > 0);
+    if (vals.isEmpty) return 0;
+    return vals.fold(0, (a, b) => a + b) / vals.length;
+  }
+
+  Future<void> _submit() async {
+    if (_noteGlobale == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('⭐ Veuillez donner une note globale'),
+        backgroundColor: Colors.orange,
+      ));
       return;
     }
+    if (widget.user == null) return;
 
-    if (_roomRating == 0 || _serviceRating == 0 || _cleanlinessRating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez donner une note dans toutes les catégories'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-
+    setState(() => _saving = true);
     try {
-      final stay = _completedStays[_selectedStayIndex];
-      final overallRating = (_roomRating + _serviceRating + _cleanlinessRating) / 3;
-
-      // Enregistrer l'avis
-      await _firestore.collection('ratings').add({
-        'reservationId': stay['id'],
-        'userId': _auth.currentUser!.uid,
-        'userEmail': _auth.currentUser!.email,
-        'roomType': stay['roomType'],
-        'roomNumber': stay['roomNumber'],
-        'roomRating': _roomRating,
-        'serviceRating': _serviceRating,
-        'cleanlinessRating': _cleanlinessRating,
-        'overallRating': overallRating,
-        'comment': _comment,
-        'timestamp': FieldValue.serverTimestamp(),
+      await FirebaseFirestore.instance.collection('avis').add({
+        'userId': widget.user!.uid,
+        'userEmail': widget.user!.email,
+        'noteGlobale': _noteGlobale,
+        'notes': _notes,
+        'moyenne': _moyenne,
+        'commentaire': _commentCtrl.text.trim(),
+        'reservationId': _selectedReservation ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+        'visible': true,
       });
 
-      // Marquer la réservation comme notée
-      await _firestore.collection('reservations').doc(stay['id']).update({
-        'rated': true,
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Merci pour votre avis !'),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ Merci pour votre avis !'),
           backgroundColor: Colors.green,
-        ),
-      );
-
-      // Réinitialiser le formulaire
-      setState(() {
-        _selectedStayIndex = -1;
-        _roomRating = 0;
-        _serviceRating = 0;
-        _cleanlinessRating = 0;
-        _comment = '';
-      });
-
-      // Recharger les séjours
-      _loadCompletedStays();
+          behavior: SnackBarBehavior.floating,
+        ));
+        // Reset
+        setState(() {
+          _noteGlobale = 0;
+          _notes.updateAll((_, __) => 0);
+          _commentCtrl.clear();
+          _selectedReservation = null;
+        });
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de l\'envoi de l\'avis: $e'),
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('❌ Erreur : $e'),
           backgroundColor: Colors.red,
-        ),
-      );
+        ));
+      }
     } finally {
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isWeb = size.width > 600;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Noter mon séjour'),
-        backgroundColor: const Color(0xFF9B4610),
-        foregroundColor: Colors.white,
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFF8F0E5),
-              Color(0xFFFDF8F3),
-            ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF9B4610),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.star_rounded, color: Colors.amber, size: 48),
+                const SizedBox(height: 8),
+                const Text('Comment s\'est passé votre séjour ?',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700),
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 4),
+                Text('Votre avis nous aide à nous améliorer',
+                    style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
+                    textAlign: TextAlign.center),
+              ],
+            ),
           ),
-        ),
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _completedStays.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(height: 20),
+
+          // Sélection réservation
+          if (_reservations.isNotEmpty) ...[
+            _sectionTitle('Séjour concerné'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedReservation,
+                  isExpanded: true,
+                  hint: const Text('Sélectionner un séjour'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Non spécifié')),
+                    ..._reservations.map((r) => DropdownMenuItem(
+                          value: r['id'] as String,
+                          child: Text(r['label'] as String,
+                              overflow: TextOverflow.ellipsis),
+                        )),
+                  ],
+                  onChanged: (v) => setState(() => _selectedReservation = v),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Note globale
+          _sectionTitle('Note globale'),
+          const SizedBox(height: 10),
+          _GlobalStarPicker(
+            note: _noteGlobale,
+            onChanged: (v) => setState(() => _noteGlobale = v),
+          ),
+          const SizedBox(height: 24),
+
+          // Notes par critère
+          _sectionTitle('Évaluation détaillée'),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2))
+              ],
+            ),
+            child: Column(
+              children: _notes.entries.map((e) {
+                final isLast = e.key == _notes.keys.last;
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Icon(_icons[e.key], color: _primary, size: 20),
+                          const SizedBox(width: 10),
+                          SizedBox(
+                            width: 100,
+                            child: Text(e.key,
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: _dark)),
+                          ),
+                          Expanded(
+                            child: _CriteriaStars(
+                              note: e.value,
+                              onChanged: (v) =>
+                                  setState(() => _notes[e.key] = v),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!isLast) const Divider(height: 1, indent: 16),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Commentaire
+          _sectionTitle('Commentaire (optionnel)'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _commentCtrl,
+            maxLines: 4,
+            maxLength: 500,
+            decoration: InputDecoration(
+              hintText: 'Partagez votre expérience en détail...',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.grey.shade200)),
+              focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: _primary, width: 1.5)),
+              contentPadding: const EdgeInsets.all(16),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Bouton soumettre
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _saving ? null : _submit,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: Text(_saving ? 'Envoi...' : 'Soumettre mon avis',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 15)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String t) => Text(t,
+      style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF4A2A10)));
+}
+
+// ──────────────────────────────────────────────────────────────
+// Onglet : Mes avis passés
+// ──────────────────────────────────────────────────────────────
+class _MyReviewsTab extends StatelessWidget {
+  final User? user;
+  const _MyReviewsTab({required this.user});
+
+  static const _primary = Color(0xFF9B4610);
+
+  @override
+  Widget build(BuildContext context) {
+    if (user == null) return const Center(child: Text('Non connecté'));
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('avis')
+          .where('userId', isEqualTo: user!.uid)
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(
+              child: CircularProgressIndicator(color: _primary));
+        }
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star_outline_rounded, size: 70, color: Colors.grey[300]),
+                const SizedBox(height: 16),
+                Text('Aucun avis soumis',
+                    style: TextStyle(
+                        fontSize: 16, color: Colors.grey[500], fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Text('Vos avis apparaîtront ici après soumission',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[400])),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: docs.length,
+          itemBuilder: (ctx, i) {
+            final data = docs[i].data() as Map<String, dynamic>;
+            return _ReviewCard(data: data);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _ReviewCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _ReviewCard({required this.data});
+
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+
+  @override
+  Widget build(BuildContext context) {
+    final note = (data['noteGlobale'] ?? 0) as int;
+    final comment = data['commentaire'] as String? ?? '';
+    final notes = data['notes'] as Map? ?? {};
+    final ts = data['createdAt'] as Timestamp?;
+    final dateStr =
+        ts != null ? DateFormat('dd/MM/yyyy').format(ts.toDate()) : '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                // Note globale
+                Row(
+                  children: List.generate(5, (i) {
+                    return Icon(
+                      i < note ? Icons.star_rounded : Icons.star_outline_rounded,
+                      color: Colors.amber,
+                      size: 22,
+                    );
+                  }),
+                ),
+                const SizedBox(width: 8),
+                Text('$note/5',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: _dark)),
+                const Spacer(),
+                Text(dateStr,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+              ],
+            ),
+            if (comment.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text('"$comment"',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                      fontStyle: FontStyle.italic)),
+            ],
+            if (notes.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: notes.entries.map((e) {
+                  final n = (e.value as int?) ?? 0;
+                  if (n == 0) return const SizedBox.shrink();
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.star, size: 60, color: Colors.grey.shade400),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Aucun séjour à noter',
-                          style: TextStyle(fontSize: 18),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Vous n\'avez aucun séjour terminé à évaluer pour le moment',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey),
-                        ),
+                        Text(e.key,
+                            style: const TextStyle(
+                                fontSize: 11, color: _primary, fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 4),
+                        Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                        Text('$n',
+                            style: const TextStyle(
+                                fontSize: 11, color: _primary, fontWeight: FontWeight.w700)),
                       ],
                     ),
-                  )
-                : Padding(
-                    padding: EdgeInsets.all(isWeb ? 40.0 : 16.0),
-                    child: isWeb
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                flex: 1,
-                                child: _buildStaysList(isWeb),
-                              ),
-                              const SizedBox(width: 24),
-                              Expanded(
-                                flex: 2,
-                                child: _buildRatingForm(isWeb),
-                              ),
-                            ],
-                          )
-                        : Column(
-                            children: [
-                              _buildStaysList(isWeb),
-                              const SizedBox(height: 24),
-                              _buildRatingForm(isWeb),
-                            ],
-                          ),
-                  ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
+}
 
-  Widget _buildStaysList(bool isWeb) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
+// ──────────────────────────────────────────────────────────────
+// Widgets étoiles
+// ──────────────────────────────────────────────────────────────
+class _GlobalStarPicker extends StatelessWidget {
+  final int note;
+  final Function(int) onChanged;
+
+  const _GlobalStarPicker({required this.note, required this.onChanged});
+
+  static const _labels = ['', 'Mauvais', 'Passable', 'Bien', 'Très bien', 'Excellent'];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Mes séjours terminés',
-              style: TextStyle(
-                fontSize: isWeb ? 20 : 18,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF4A2A10),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ..._completedStays.asMap().entries.map((entry) {
-              final index = entry.key;
-              final stay = entry.value;
-              final isSelected = _selectedStayIndex == index;
-
-              final checkInDate = stay['checkInDate'] is Timestamp
-                  ? (stay['checkInDate'] as Timestamp).toDate()
-                  : DateTime.now();
-              final checkOutDate = stay['checkOutDate'] is Timestamp
-                  ? (stay['checkOutDate'] as Timestamp).toDate()
-                  : DateTime.now();
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? const Color(0xFF9B4610).withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isSelected
-                        ? const Color(0xFF9B4610)
-                        : Colors.grey.shade300,
-                    width: 1,
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (i) {
+              return GestureDetector(
+                onTap: () => onChanged(i + 1),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    i < note ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: i < note ? Colors.amber : Colors.grey[300],
+                    size: 44,
                   ),
-                ),
-                child: ListTile(
-                  title: Text(
-                    stay['roomType'] ?? 'Chambre',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: isSelected
-                          ? const Color(0xFF9B4610)
-                          : const Color(0xFF4A2A10),
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text('Chambre: ${stay['roomNumber'] ?? 'Non attribué'}'),
-                      Text(
-                          'Du ${_formatDate(checkInDate)} au ${_formatDate(checkOutDate)}'),
-                    ],
-                  ),
-                  trailing: isSelected
-                      ? const Icon(Icons.check_circle, color: Color(0xFF9B4610))
-                      : null,
-                  onTap: () {
-                    setState(() {
-                      _selectedStayIndex = index;
-                    });
-                  },
                 ),
               );
-            }).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRatingForm(bool isWeb) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+            }),
+          ),
+          if (note > 0) ...[
+            const SizedBox(height: 8),
             Text(
-              'Donnez votre avis',
-              style: TextStyle(
-                fontSize: isWeb ? 24 : 20,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFF4A2A10),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Votre feedback nous aide à améliorer nos services',
-              style: TextStyle(
-                color: Color(0xFF6D5D4F),
-              ),
-            ),
-            const SizedBox(height: 24),
-            _buildRatingCategory('Confort de la chambre', _roomRating, (rating) {
-              setState(() => _roomRating = rating);
-            }),
-            const SizedBox(height: 20),
-            _buildRatingCategory('Qualité du service', _serviceRating, (rating) {
-              setState(() => _serviceRating = rating);
-            }),
-            const SizedBox(height: 20),
-            _buildRatingCategory('Propreté', _cleanlinessRating, (rating) {
-              setState(() => _cleanlinessRating = rating);
-            }),
-            const SizedBox(height: 24),
-            const Text(
-              'Commentaire (optionnel)',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF4A2A10),
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: 'Partagez votre expérience...',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onChanged: (value) => _comment = value,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submitRating,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF9B4610),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text(
-                        'Envoyer mon avis',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-              ),
+              _labels[note],
+              style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.amber),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildRatingCategory(String title, double rating, Function(double) onRatingUpdate) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF4A2A10),
+class _CriteriaStars extends StatelessWidget {
+  final int note;
+  final Function(int) onChanged;
+
+  const _CriteriaStars({required this.note, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: List.generate(5, (i) {
+        return GestureDetector(
+          onTap: () => onChanged(i + 1),
+          child: Icon(
+            i < note ? Icons.star_rounded : Icons.star_outline_rounded,
+            color: i < note ? Colors.amber : Colors.grey[300],
+            size: 26,
           ),
-        ),
-        const SizedBox(height: 8),
-        RatingBar.builder(
-          initialRating: rating,
-          minRating: 1,
-          direction: Axis.horizontal,
-          allowHalfRating: true,
-          itemCount: 5,
-          itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
-          itemBuilder: (context, _) => const Icon(
-            Icons.star,
-            color: Colors.amber,
-          ),
-          onRatingUpdate: onRatingUpdate,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          rating == 0 ? 'Aucune note' : '${rating.toStringAsFixed(1)}/5',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ],
+        );
+      }),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 }

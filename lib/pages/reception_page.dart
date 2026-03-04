@@ -7,6 +7,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'notification_service.dart';
+// ✅ Import profil utilisateur admin
+import 'package:flostay/pages/user_profile_admin_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,11 +69,9 @@ class MyApp extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
-          
           if (snapshot.hasData) {
             return const ReceptionPage();
           }
-          
           return const LoginPage();
         },
       ),
@@ -78,9 +79,11 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGIN PAGE (identique à l'original)
+// ─────────────────────────────────────────────────────────────────────────────
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
-
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -93,34 +96,33 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _login() async {
     setState(() => _isLoading = true);
-    
     try {
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-      
-      // Vérifier le rôle de l'utilisateur
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
           .get();
-          
       if (userDoc.exists && userDoc.data()!['role'] == 'receptionniste') {
-        // Connexion réussie pour réceptionniste
+        // ok
       } else {
-        // Déconnecter si l'utilisateur n'a pas le bon rôle
         await _auth.signOut();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Accès réservé au personnel de réception')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Accès réservé au personnel de réception')),
+          );
+        }
       }
     } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion: ${e.message}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur de connexion: ${e.message}')),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -135,7 +137,6 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo avec la couleur thématique
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -155,7 +156,7 @@ class _LoginPageState extends State<LoginPage> {
               Text(
                 'Espace Réception',
                 style: TextStyle(
-                  fontSize: kIsWeb ? 20 : 16, 
+                  fontSize: kIsWeb ? 20 : 16,
                   color: const Color(0xFF9B4610),
                   fontWeight: FontWeight.bold,
                 ),
@@ -166,11 +167,6 @@ class _LoginPageState extends State<LoginPage> {
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   prefixIcon: Icon(Icons.email, color: Color(0xFF9B4610)),
-                  border: OutlineInputBorder(),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF9B4610)),
-                  ),
-                  labelStyle: TextStyle(color: Color(0xFF9B4610)),
                 ),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -180,11 +176,6 @@ class _LoginPageState extends State<LoginPage> {
                 decoration: const InputDecoration(
                   labelText: 'Mot de passe',
                   prefixIcon: Icon(Icons.lock, color: Color(0xFF9B4610)),
-                  border: OutlineInputBorder(),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF9B4610)),
-                  ),
-                  labelStyle: TextStyle(color: Color(0xFF9B4610)),
                 ),
                 obscureText: true,
               ),
@@ -197,9 +188,7 @@ class _LoginPageState extends State<LoginPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF9B4610),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
@@ -214,9 +203,11 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RECEPTION PAGE (identique à l'original)
+// ─────────────────────────────────────────────────────────────────────────────
 class ReceptionPage extends StatefulWidget {
   const ReceptionPage({super.key});
-
   @override
   State<ReceptionPage> createState() => _ReceptionPageState();
 }
@@ -228,12 +219,12 @@ class _ReceptionPageState extends State<ReceptionPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   final List<Widget> _pages = [
-    const DashboardPage(), // Tableau de bord en première position
+    const DashboardPage(),
     const ReservationsList(),
     const OrdersList(),
     const CheckInOutList(),
-    const ConversationsList(),
-    const AlertsPage(), // Page des alertes
+    const ConversationsList(), // ✅ Version améliorée
+    const AlertsPage(),
   ];
 
   final List<String> _appBarTitles = [
@@ -251,7 +242,7 @@ class _ReceptionPageState extends State<ReceptionPage> {
     _loadUnreadNotifications();
   }
 
-  void _loadUnreadNotifications() async {
+  void _loadUnreadNotifications() {
     final user = _auth.currentUser;
     if (user != null) {
       FirebaseFirestore.instance
@@ -260,256 +251,115 @@ class _ReceptionPageState extends State<ReceptionPage> {
           .where('status', isEqualTo: 'unread')
           .snapshots()
           .listen((snapshot) {
-        setState(() {
-          _unreadNotifications = snapshot.size;
-        });
+        if (mounted) setState(() => _unreadNotifications = snapshot.size);
       });
     }
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
-
-  Future<void> _signOut() async {
-    await _auth.signOut();
-  }
+  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
+  Future<void> _signOut() async => _auth.signOut();
 
   @override
   Widget build(BuildContext context) {
-    // Layout pour le web avec drawer (pas de sidebar fixe)
+    Widget notifBell = Stack(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications),
+          onPressed: _showNotificationsDialog,
+          tooltip: "Notifications",
+        ),
+        if (_unreadNotifications > 0)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(6)),
+              constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+              child: Text('$_unreadNotifications',
+                  style: const TextStyle(color: Colors.white, fontSize: 8),
+                  textAlign: TextAlign.center),
+            ),
+          ),
+      ],
+    );
+
+    Widget drawerContent = Container(
+      color: const Color(0xFF9B4610),
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: const BoxDecoration(color: Color(0xFF9B4610)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('FLOSTAY',
+                    style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(_auth.currentUser?.email ?? '',
+                    style: const TextStyle(color: Colors.white70)),
+              ],
+            ),
+          ),
+          _buildDrawerItem(Icons.dashboard, "Tableau de bord", 0),
+          _buildDrawerItem(Icons.hotel, "Réservations", 1),
+          _buildDrawerItem(Icons.room_service, "Commandes", 2),
+          _buildDrawerItem(Icons.check_circle, "Check-in/out", 3),
+          _buildDrawerItem(Icons.message, "Messages", 4),
+          _buildDrawerItem(Icons.warning, "Alertes", 5),
+          const Divider(color: Colors.white54),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.white),
+            title: const Text('Déconnexion', style: TextStyle(color: Colors.white)),
+            onTap: _signOut,
+          ),
+        ],
+      ),
+    );
+
     if (kIsWeb) {
       return Scaffold(
         key: _scaffoldKey,
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.menu),
-            onPressed: () {
-              _scaffoldKey.currentState?.openDrawer();
-            },
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
-          title: Text(
-            _appBarTitles[_selectedIndex],
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
+          title: Text(_appBarTitles[_selectedIndex],
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
           backgroundColor: const Color(0xFF9B4610),
           foregroundColor: Colors.white,
           actions: [
-            Stack(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.notifications),
-                  onPressed: () {
-                    _showNotificationsDialog();
-                  },
-                  tooltip: "Notifications",
-                ),
-                if (_unreadNotifications > 0)
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 14,
-                        minHeight: 14,
-                      ),
-                      child: Text(
-                        '$_unreadNotifications',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 8,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _signOut,
-              tooltip: "Se déconnecter",
-            ),
+            notifBell,
+            IconButton(icon: const Icon(Icons.logout), onPressed: _signOut),
           ],
         ),
-        drawer: Drawer(
-          child: Container(
-            color: const Color(0xFF9B4610),
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                DrawerHeader(
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF9B4610),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'FLOSTAY',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _auth.currentUser?.email ?? '',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _buildDrawerItem(Icons.dashboard, "Tableau de bord", 0),
-                _buildDrawerItem(Icons.hotel, "Réservations", 1),
-                _buildDrawerItem(Icons.room_service, "Commandes", 2),
-                _buildDrawerItem(Icons.check_circle, "Check-in/out", 3),
-                _buildDrawerItem(Icons.message, "Messages", 4),
-                _buildDrawerItem(Icons.warning, "Alertes", 5),
-                const Divider(color: Colors.white54),
-                ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.white),
-                  title: const Text('Déconnexion', style: TextStyle(color: Colors.white)),
-                  onTap: _signOut,
-                ),
-              ],
-            ),
-          ),
-        ),
-        body: _pages[_selectedIndex], // Le corps prend toute la largeur
+        drawer: Drawer(child: drawerContent),
+        body: _pages[_selectedIndex],
       );
     } else {
-      // Layout pour mobile avec navigation en bas
       return Scaffold(
         key: _scaffoldKey,
         backgroundColor: Colors.white,
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.menu),
-            onPressed: () {
-              _scaffoldKey.currentState?.openDrawer();
-            },
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
           ),
-          title: Text(
-            _appBarTitles[_selectedIndex],
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
+          title: Text(_appBarTitles[_selectedIndex],
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
           backgroundColor: const Color(0xFF9B4610),
           foregroundColor: Colors.white,
-          actions: [
-            Stack(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.notifications),
-                  onPressed: () {
-                    _showNotificationsDialog();
-                  },
-                  tooltip: "Notifications",
-                ),
-                if (_unreadNotifications > 0)
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 14,
-                        minHeight: 14,
-                      ),
-                      child: Text(
-                        '$_unreadNotifications',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 8,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
+          actions: [notifBell],
         ),
-        drawer: Drawer(
-          child: Container(
-            color: const Color(0xFF9B4610),
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                DrawerHeader(
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF9B4610),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'FLOSTAY',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _auth.currentUser?.email ?? '',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _buildDrawerItem(Icons.dashboard, "Tableau de bord", 0),
-                _buildDrawerItem(Icons.hotel, "Réservations", 1),
-                _buildDrawerItem(Icons.room_service, "Commandes", 2),
-                _buildDrawerItem(Icons.check_circle, "Check-in/out", 3),
-                _buildDrawerItem(Icons.message, "Messages", 4),
-                _buildDrawerItem(Icons.warning, "Alertes", 5),
-                const Divider(color: Colors.white54),
-                ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.white),
-                  title: const Text('Déconnexion', style: TextStyle(color: Colors.white)),
-                  onTap: _signOut,
-                ),
-              ],
-            ),
-          ),
-        ),
+        drawer: Drawer(child: drawerContent),
         body: _pages[_selectedIndex],
         bottomNavigationBar: Container(
           decoration: BoxDecoration(
             color: const Color(0xFF9B4610),
             boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                spreadRadius: 1,
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
+              BoxShadow(color: Colors.black.withOpacity(0.2), spreadRadius: 1, blurRadius: 10, offset: const Offset(0, 2)),
             ],
           ),
           child: BottomNavigationBar(
@@ -522,30 +372,12 @@ class _ReceptionPageState extends State<ReceptionPage> {
             elevation: 10,
             onTap: _onItemTapped,
             items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.dashboard),
-                label: "Dashboard",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.hotel),
-                label: "Réservations",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.room_service),
-                label: "Commandes",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.check_circle),
-                label: "Check-in/out",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.message),
-                label: "Messages",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.warning),
-                label: "Alertes",
-              ),
+              BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Dashboard"),
+              BottomNavigationBarItem(icon: Icon(Icons.hotel), label: "Réservations"),
+              BottomNavigationBarItem(icon: Icon(Icons.room_service), label: "Commandes"),
+              BottomNavigationBarItem(icon: Icon(Icons.check_circle), label: "Check-in/out"),
+              BottomNavigationBarItem(icon: Icon(Icons.message), label: "Messages"),
+              BottomNavigationBarItem(icon: Icon(Icons.warning), label: "Alertes"),
             ],
           ),
         ),
@@ -554,21 +386,16 @@ class _ReceptionPageState extends State<ReceptionPage> {
   }
 
   Widget _buildDrawerItem(IconData icon, String title, int index) {
-    final isSelected = _selectedIndex == index;
-    
     return ListTile(
       leading: Icon(icon, color: Colors.white),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      selected: isSelected,
+      title: Text(title,
+          style: TextStyle(
+              color: Colors.white,
+              fontWeight: _selectedIndex == index ? FontWeight.bold : FontWeight.normal)),
+      selected: _selectedIndex == index,
       onTap: () {
         _onItemTapped(index);
-        Navigator.pop(context); // Close the drawer
+        Navigator.pop(context);
       },
     );
   }
@@ -576,244 +403,137 @@ class _ReceptionPageState extends State<ReceptionPage> {
   void _showNotificationsDialog() {
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Notifications', style: TextStyle(color: Color(0xFF9B4610))),
-          content: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('notifications')
-                .where('receptionistId', isEqualTo: _auth.currentUser?.uid)
-                .orderBy('createdAt', descending: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return const Text("Aucune notification");
-              }
-              
-              final notifications = snapshot.data!.docs;
-              
-              return SizedBox(
-                width: double.maxFinite,
-                height: 300,
-                child: ListView.builder(
-                  itemCount: notifications.length,
-                  itemBuilder: (context, index) {
-                    final notification = notifications[index];
-                    final data = notification.data() as Map<String, dynamic>;
-                    final timestamp = data['createdAt'] as Timestamp?;
-                    
-                    return ListTile(
-                      title: Text(data['title'] ?? 'Notification'),
-                      subtitle: Text(data['message'] ?? ''),
-                      trailing: Text(timestamp != null 
-                          ? DateFormat('dd/MM HH:mm').format(timestamp.toDate())
-                          : ''),
-                      onTap: () {
-                        // Marquer comme lu
-                        FirebaseFirestore.instance
-                            .collection('notifications')
-                            .doc(notification.id)
-                            .update({'status': 'read'});
-                      },
-                    );
-                  },
-                ),
-              );
-            },
+      builder: (context) => AlertDialog(
+        title: const Text('Notifications', style: TextStyle(color: Color(0xFF9B4610))),
+        content: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('notifications')
+              .where('receptionistId', isEqualTo: _auth.currentUser?.uid)
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return const Text("Aucune notification");
+            }
+            return SizedBox(
+              width: double.maxFinite,
+              height: 300,
+              child: ListView.builder(
+                itemCount: snapshot.data!.docs.length,
+                itemBuilder: (context, index) {
+                  final notif = snapshot.data!.docs[index];
+                  final data = notif.data() as Map<String, dynamic>;
+                  final ts = data['createdAt'] as Timestamp?;
+                  return ListTile(
+                    title: Text(data['title'] ?? 'Notification'),
+                    subtitle: Text(data['message'] ?? ''),
+                    trailing: Text(ts != null ? DateFormat('dd/MM HH:mm').format(ts.toDate()) : ''),
+                    onTap: () => FirebaseFirestore.instance
+                        .collection('notifications')
+                        .doc(notif.id)
+                        .update({'status': 'read'}),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer', style: TextStyle(color: Color(0xFF9B4610))),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Fermer', style: TextStyle(color: Color(0xFF9B4610))),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
   }
 }
-// ... (le code précédent reste inchangé jusqu'à la classe DashboardPage)
 
-// NOUVELLE PAGE: TABLEAU DE BORD
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD (identique à l'original)
+// ─────────────────────────────────────────────────────────────────────────────
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
-  // Fonction pour parser les dates (gère à la fois Timestamp et String)
-  DateTime _parseDate(dynamic dateValue) {
-    if (dateValue is Timestamp) {
-      return dateValue.toDate();
-    } else if (dateValue is String) {
-      try {
-        return DateFormat('dd/MM/yyyy').parse(dateValue);
-      } catch (e) {
-        return DateTime.now();
-      }
-    } else {
-      return DateTime.now();
+  DateTime _parseDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    if (v is String) {
+      try { return DateFormat('dd/MM/yyyy').parse(v); } catch (_) {}
     }
+    return DateTime.now();
   }
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Tableau de Bord',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black),
-          ),
+          const Text('Tableau de Bord',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black)),
           const SizedBox(height: 20),
-          
-          // Première ligne de statistiques
-          Row(
-            children: [
-              // Réservations en attente
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('reservations').snapshots(),
-                builder: (context, snapshot) {
-                  int count = 0;
-                  if (snapshot.hasData) {
-                    count = snapshot.data!.docs.where((res) {
-                      final data = res.data() as Map<String, dynamic>;
-                      return data['status'] == 'pending';
-                    }).length;
-                  }
-                  return _buildStatCard('Réservations en attente', count, Colors.orange);
-                },
-              ),
-              const SizedBox(width: 16),
-              
-              // Réservations confirmées
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('reservations').snapshots(),
-                builder: (context, snapshot) {
-                  int count = 0;
-                  if (snapshot.hasData) {
-                    count = snapshot.data!.docs.where((res) {
-                      final data = res.data() as Map<String, dynamic>;
-                      return data['status'] == 'confirmed';
-                    }).length;
-                  }
-                  return _buildStatCard('Réservations confirmées', count, Colors.green);
-                },
-              ),
-              const SizedBox(width: 16),
-              
-              // Clients check-in
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('reservations').snapshots(),
-                builder: (context, snapshot) {
-                  int count = 0;
-                  if (snapshot.hasData) {
-                    count = snapshot.data!.docs.where((res) {
-                      final data = res.data() as Map<String, dynamic>;
-                      return data['status'] == 'checked-in';
-                    }).length;
-                  }
-                  return _buildStatCard('Clients check-in', count, Colors.blue);
-                },
-              ),
-            ],
-          ),
-          
+          Row(children: [
+            _statCard('pending', 'Réservations en attente', Colors.orange),
+            const SizedBox(width: 16),
+            _statCard('confirmed', 'Réservations confirmées', Colors.green),
+            const SizedBox(width: 16),
+            _statCard('checked-in', 'Clients check-in', Colors.blue),
+          ]),
           const SizedBox(height: 16),
-          
-          // Deuxième ligne de statistiques
-          Row(
-            children: [
-              // Clients check-out
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('reservations').snapshots(),
-                builder: (context, snapshot) {
-                  int count = 0;
-                  if (snapshot.hasData) {
-                    count = snapshot.data!.docs.where((res) {
-                      final data = res.data() as Map<String, dynamic>;
-                      return data['status'] == 'checked-out';
-                    }).length;
-                  }
-                  return _buildStatCard('Clients check-out', count, Colors.purple);
-                },
-              ),
-              const SizedBox(width: 16),
-              
-              // Alertes non résolues
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('alerts').snapshots(),
-                builder: (context, snapshot) {
-                  int count = 0;
-                  if (snapshot.hasData) {
-                    count = snapshot.data!.docs.where((alert) {
-                      final data = alert.data() as Map<String, dynamic>;
-                      return data['status'] != 'resolved';
-                    }).length;
-                  }
-                  return _buildStatCard('Alertes non résolues', count, Colors.red);
-                },
-              ),
-              const SizedBox(width: 16),
-              
-              // Commandes en cours
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('commandes').snapshots(),
-                builder: (context, snapshot) {
-                  int count = 0;
-                  if (snapshot.hasData) {
-                    count = snapshot.data!.docs.where((cmd) {
-                      final data = cmd.data() as Map<String, dynamic>;
-                      return data['statut'] == 'en_attente' || data['statut'] == 'en_cours';
-                    }).length;
-                  }
-                  return _buildStatCard('Commandes en cours', count, Colors.amber);
-                },
-              ),
-            ],
-          ),
-          
+          Row(children: [
+            _statCard('checked-out', 'Clients check-out', Colors.purple),
+            const SizedBox(width: 16),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('alerts').snapshots(),
+              builder: (_, snap) {
+                int c = 0;
+                if (snap.hasData) c = snap.data!.docs.where((d) => (d.data() as Map)['status'] != 'resolved').length;
+                return _buildStatCardWidget('Alertes non résolues', c, Colors.red);
+              },
+            ),
+            const SizedBox(width: 16),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('commandes').snapshots(),
+              builder: (_, snap) {
+                int c = 0;
+                if (snap.hasData) {
+                  c = snap.data!.docs.where((d) {
+                    final data = d.data() as Map;
+                    return data['statut'] == 'en_attente' || data['statut'] == 'en_cours';
+                  }).length;
+                }
+                return _buildStatCardWidget('Commandes en cours', c, Colors.amber);
+              },
+            ),
+          ]),
           const SizedBox(height: 24),
-          
-          // Dernières réservations
-          const Text(
-            'Dernières réservations',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
-          ),
+          const Text('Dernières réservations',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
           const SizedBox(height: 16),
-          
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('reservations')
                 .orderBy('createdAt', descending: true)
                 .limit(5)
                 .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final reservations = snapshot.data!.docs;
-              
+            builder: (_, snap) {
+              if (!snap.hasData) return const Center(child: CircularProgressIndicator());
               return ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: reservations.length,
-                itemBuilder: (context, index) {
-                  final reservation = reservations[index];
-                  final data = reservation.data() as Map<String, dynamic>;
-                  
+                itemCount: snap.data!.docs.length,
+                itemBuilder: (_, i) {
+                  final data = snap.data!.docs[i].data() as Map<String, dynamic>;
                   return ListTile(
                     leading: const Icon(Icons.hotel, color: Color(0xFF9B4610)),
                     title: Text(data['userEmail'] ?? 'Client'),
                     subtitle: Text('Chambre: ${data['roomType'] ?? 'N/A'}'),
-                    trailing: Text(
-                      DateFormat('dd/MM').format(_parseDate(data['checkInDate'])),
-                      style: const TextStyle(color: Colors.grey),
-                    ),
+                    trailing: Text(DateFormat('dd/MM').format(_parseDate(data['checkInDate'])),
+                        style: const TextStyle(color: Colors.grey)),
                   );
                 },
               );
@@ -824,24 +544,34 @@ class DashboardPage extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(String title, int count, Color color) {
+  Widget _statCard(String status, String label, Color color) {
+    return Expanded(
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('reservations').snapshots(),
+        builder: (_, snap) {
+          int c = 0;
+          if (snap.hasData) {
+            c = snap.data!.docs.where((d) => (d.data() as Map)['status'] == status).length;
+          }
+          return _buildStatCardWidget(label, c, color);
+        },
+      ),
+    );
+  }
+
+  Widget _buildStatCardWidget(String title, int count, Color color) {
     return Expanded(
       child: Card(
         elevation: 4,
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
-              ),
+              Text(title, style: const TextStyle(fontSize: 14, color: Colors.grey)),
               const SizedBox(height: 8),
-              Text(
-                count.toString(),
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
-              ),
+              Text(count.toString(),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
             ],
           ),
         ),
@@ -850,23 +580,595 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
-// Dialogue pour créer une réservation
+// ─────────────────────────────────────────────────────────────────────────────
+// ✅ CONVERSATIONS LIST — avec photo profil + bouton voir profil
+// ─────────────────────────────────────────────────────────────────────────────
+class ConversationsList extends StatefulWidget {
+  const ConversationsList({super.key});
+  @override
+  State<ConversationsList> createState() => _ConversationsListState();
+}
+
+class _ConversationsListState extends State<ConversationsList> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: "Rechercher une conversation...",
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      })
+                  : null,
+            ),
+            onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('chats')
+                .orderBy('lastMessageTime', descending: true)
+                .snapshots(),
+            builder: (ctx, snap) {
+              if (snap.hasError) {
+                return Center(child: Text('Erreur: ${snap.error}', style: const TextStyle(color: Colors.black)));
+              }
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9B4610))));
+              }
+
+              final chats = snap.data!.docs.where((chat) {
+                final d = chat.data() as Map<String, dynamic>;
+                final email = (d['userEmail'] ?? '').toString().toLowerCase();
+                final name = (d['clientName'] ?? '').toString().toLowerCase();
+                final last = (d['lastMessage'] ?? '').toString().toLowerCase();
+                return email.contains(_searchQuery) || name.contains(_searchQuery) || last.contains(_searchQuery);
+              }).toList();
+
+              if (chats.isEmpty) {
+                return const Center(child: Text("Aucune conversation", style: TextStyle(color: Colors.black)));
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: chats.length,
+                itemBuilder: (ctx, i) {
+                  final chat = chats[i];
+                  final data = chat.data() as Map<String, dynamic>;
+                  final userEmail = data['userEmail'] ?? '';
+                  // ✅ Nom du client (depuis champ sauvegardé par chat_page.dart)
+                  final clientName = (data['clientName'] as String?)?.isNotEmpty == true
+                      ? data['clientName'] as String
+                      : userEmail;
+                  final lastMessage = data['lastMessage'] ?? '';
+                  final ts = data['lastMessageTime'] as Timestamp?;
+                  final timeStr = ts != null ? DateFormat('dd/MM HH:mm').format(ts.toDate()) : '';
+                  // ✅ Photo de profil sauvegardée par chat_page.dart
+                  final profileImage = data['clientProfileImage'] as String?;
+                  final initial = clientName.isNotEmpty ? clientName[0].toUpperCase() : '?';
+                  final unread = (data['receptionUnread'] ?? 0) as int;
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    color: Colors.white,
+                    elevation: 2,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      // ✅ Avatar avec vraie photo de profil
+                      leading: Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor: const Color(0xFF9B4610).withOpacity(0.15),
+                            backgroundImage: profileImage != null ? NetworkImage(profileImage) : null,
+                            child: profileImage == null
+                                ? Text(initial,
+                                    style: const TextStyle(
+                                        color: Color(0xFF9B4610),
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16))
+                                : null,
+                          ),
+                          // Badge messages non lus
+                          if (unread > 0)
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              child: Container(
+                                width: 16,
+                                height: 16,
+                                decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                child: Text('$unread',
+                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                    textAlign: TextAlign.center),
+                              ),
+                            ),
+                        ],
+                      ),
+                      title: Text(clientName,
+                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w600)),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (clientName != userEmail)
+                            Text(userEmail,
+                                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          Text(lastMessage,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        ],
+                      ),
+                      trailing: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(timeStr, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          const SizedBox(height: 4),
+                          // ✅ Bouton "Profil" pour voir le profil complet du client
+                          GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => UserProfileAdminPage(
+                                  userId: chat.id,
+                                  userName: clientName,
+                                  userEmail: userEmail,
+                                  userRole: 'client',
+                                ),
+                              ),
+                            ),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF9B4610).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text('Profil',
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      color: Color(0xFF9B4610),
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatPageReceptionV2(
+                            chatId: chat.id,
+                            userEmail: userEmail,
+                            clientName: clientName,
+                            clientProfileImage: profileImage,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✅ CHAT RÉCEPTION — avec photo profil client + bouton voir profil
+// ─────────────────────────────────────────────────────────────────────────────
+class ChatPageReceptionV2 extends StatefulWidget {
+  final String chatId;
+  final String userEmail;
+  final String clientName;
+  final String? clientProfileImage;
+
+  const ChatPageReceptionV2({
+    super.key,
+    required this.chatId,
+    required this.userEmail,
+    this.clientName = '',
+    this.clientProfileImage,
+  });
+
+  @override
+  State<ChatPageReceptionV2> createState() => _ChatPageReceptionV2State();
+}
+
+class _ChatPageReceptionV2State extends State<ChatPageReceptionV2> {
+  final TextEditingController _controller = TextEditingController();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final user = FirebaseAuth.instance.currentUser;
+  final ScrollController _scrollController = ScrollController();
+
+  String? _clientProfileImage;
+  late String _clientName;
+
+  @override
+  void initState() {
+    super.initState();
+    _clientProfileImage = widget.clientProfileImage;
+    _clientName = widget.clientName.isNotEmpty ? widget.clientName : widget.userEmail;
+    _markAsRead();
+    _loadClientProfile(); // ✅ Charge la photo si pas encore dispo
+  }
+
+  // ✅ Charge la photo depuis Firestore si pas transmise
+  Future<void> _loadClientProfile() async {
+    if (_clientProfileImage != null) return;
+    try {
+      // D'abord depuis le document chat (sauvegardé par chat_page.dart)
+      final chatDoc = await _firestore.collection('chats').doc(widget.chatId).get();
+      if (chatDoc.exists) {
+        final d = chatDoc.data()!;
+        final img = d['clientProfileImage'] as String?;
+        final name = d['clientName'] as String?;
+        if (mounted) {
+          setState(() {
+            if (img != null) _clientProfileImage = img;
+            if (name != null && name.isNotEmpty) _clientName = name;
+          });
+        }
+        if (img != null) return;
+      }
+      // Sinon depuis users/{uid}
+      final userDoc = await _firestore.collection('users').doc(widget.chatId).get();
+      if (userDoc.exists && mounted) {
+        setState(() {
+          _clientProfileImage = userDoc.data()?['profileImage'] as String?;
+          final n = userDoc.data()?['name'] as String?;
+          if (n != null && n.isNotEmpty) _clientName = n;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _markAsRead() async {
+    try {
+      await _firestore.collection('chats').doc(widget.chatId).update({
+        'receptionUnread': 0,
+      });
+    } catch (_) {}
+  }
+
+  void sendMessage() {
+    if (_controller.text.trim().isEmpty) return;
+    final message = _controller.text.trim();
+
+    _firestore
+        .collection('chats')
+        .doc(widget.chatId)
+        .collection('messages')
+        .add({
+      'senderId': user?.uid,
+      'message': message,
+      'timestamp': FieldValue.serverTimestamp(),
+      'senderEmail': user?.email,
+      'sender': 'reception',
+    }).then((_) {
+      _firestore.collection('chats').doc(widget.chatId).update({
+        'lastMessage': message,
+        'lastMessageTime': FieldValue.serverTimestamp(),
+        'clientUnread': FieldValue.increment(1),
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(0,
+              duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+        }
+      });
+    });
+    _controller.clear();
+    setState(() {});
+  }
+
+  // ✅ Ouvre le profil complet du client
+  void _openClientProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UserProfileAdminPage(
+          userId: widget.chatId,
+          userName: _clientName,
+          userEmail: widget.userEmail,
+          userRole: 'client',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = _clientName.isNotEmpty ? _clientName[0].toUpperCase() : '?';
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF9B4610),
+        foregroundColor: Colors.white,
+        titleSpacing: 0,
+        // ✅ Header cliquable = ouvre profil
+        title: GestureDetector(
+          onTap: _openClientProfile,
+          child: Row(
+            children: [
+              // ✅ Photo de profil dans AppBar
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: Colors.white.withOpacity(0.25),
+                backgroundImage: _clientProfileImage != null
+                    ? NetworkImage(_clientProfileImage!)
+                    : null,
+                child: _clientProfileImage == null
+                    ? Text(initial,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))
+                    : null,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_clientName,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                    // ✅ Indicateur "En train d'écrire..."
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('chats')
+                          .doc(widget.chatId)
+                          .snapshots(),
+                      builder: (_, snap) {
+                        final isTyping =
+                            (snap.data?.data() as Map?)?['isTypingClient'] == true;
+                        return Text(
+                          isTyping ? '✏️ En train d\'écrire...' : widget.userEmail,
+                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          // ✅ Bouton voir profil complet
+          Tooltip(
+            message: 'Voir le profil complet',
+            child: IconButton(
+              icon: const Icon(Icons.person_search_rounded),
+              onPressed: _openClientProfile,
+            ),
+          ),
+        ],
+      ),
+      body: Container(
+        color: Colors.white,
+        child: Column(
+          children: [
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: _firestore
+                    .collection('chats')
+                    .doc(widget.chatId)
+                    .collection('messages')
+                    .orderBy('timestamp', descending: true)
+                    .snapshots(),
+                builder: (ctx, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9B4610))));
+                  }
+                  if (snap.hasError) {
+                    return Center(child: Text("Erreur: ${snap.error}"));
+                  }
+                  if (!snap.hasData || snap.data!.docs.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey.shade400),
+                          const SizedBox(height: 16),
+                          const Text("Aucun message", style: TextStyle(fontSize: 18, color: Colors.black)),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final docs = snap.data!.docs;
+                  return ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: docs.length,
+                    itemBuilder: (ctx, i) {
+                      final data = docs[i].data() as Map<String, dynamic>;
+                      final isMe = data['senderId'] == user?.uid;
+                      final isClient = data['sender'] == 'client';
+                      final ts = data['timestamp'] as Timestamp?;
+                      final time = ts != null ? DateFormat.Hm().format(ts.toDate()) : '';
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            // ✅ Avatar client avec vraie photo
+                            if (!isMe) ...[
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: const Color(0xFF9B4610).withOpacity(0.15),
+                                backgroundImage: _clientProfileImage != null
+                                    ? NetworkImage(_clientProfileImage!)
+                                    : null,
+                                child: _clientProfileImage == null
+                                    ? Text(initial,
+                                        style: const TextStyle(
+                                            color: Color(0xFF9B4610),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold))
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment:
+                                    isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                                    decoration: BoxDecoration(
+                                      color: isMe ? const Color(0xFF9B4610) : Colors.grey[200],
+                                      borderRadius: BorderRadius.only(
+                                        topLeft: const Radius.circular(18),
+                                        topRight: const Radius.circular(18),
+                                        bottomLeft: isMe ? const Radius.circular(18) : const Radius.circular(4),
+                                        bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(18),
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                            color: Colors.black.withOpacity(0.08),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2))
+                                      ],
+                                    ),
+                                    child: Text(data['message'] ?? '',
+                                        style: TextStyle(
+                                            color: isMe ? Colors.white : Colors.black,
+                                            fontSize: 15)),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(time,
+                                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                ],
+                              ),
+                            ),
+                            if (isMe) ...[
+                              const SizedBox(width: 8),
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: const Color(0xFF9B4610).withOpacity(0.3),
+                                child: const Icon(Icons.support_agent,
+                                    size: 16, color: Color(0xFF9B4610)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            // Zone de saisie
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: TextField(
+                        controller: _controller,
+                        minLines: 1,
+                        maxLines: 3,
+                        style: const TextStyle(color: Colors.black),
+                        decoration: InputDecoration(
+                          hintText: 'Répondre à $_clientName…',
+                          hintStyle: const TextStyle(color: Colors.grey),
+                          border: InputBorder.none,
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                          suffixIcon: _controller.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.close, color: Colors.grey),
+                                  onPressed: () {
+                                    _controller.clear();
+                                    setState(() {});
+                                  })
+                              : null,
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) => sendMessage(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _controller.text.trim().isNotEmpty ? sendMessage : null,
+                    child: Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: _controller.text.trim().isNotEmpty
+                            ? const Color(0xFF9B4610)
+                            : Colors.grey.shade300,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.send,
+                          color: _controller.text.trim().isNotEmpty
+                              ? Colors.white
+                              : Colors.grey.shade500,
+                          size: 20),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Toutes les autres classes — identiques à l'original
+// ─────────────────────────────────────────────────────────────────────────────
+
 class CreateReservationDialog extends StatefulWidget {
   const CreateReservationDialog({super.key});
-
   @override
   State<CreateReservationDialog> createState() => _CreateReservationDialogState();
 }
 
 class _CreateReservationDialogState extends State<CreateReservationDialog> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _clientNameController = TextEditingController();
-  final TextEditingController _clientEmailController = TextEditingController();
-  final TextEditingController _clientPhoneController = TextEditingController();
-  final TextEditingController _roomTypeController = TextEditingController();
-  final TextEditingController _guestsController = TextEditingController();
-  final TextEditingController _checkInDateController = TextEditingController();
-  final TextEditingController _checkOutDateController = TextEditingController();
+  final _clientNameCtrl = TextEditingController();
+  final _clientEmailCtrl = TextEditingController();
+  final _clientPhoneCtrl = TextEditingController();
+  final _roomTypeCtrl = TextEditingController();
+  final _guestsCtrl = TextEditingController();
+  final _checkInCtrl = TextEditingController();
+  final _checkOutCtrl = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -878,100 +1180,34 @@ class _CreateReservationDialogState extends State<CreateReservationDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextFormField(
-                controller: _clientNameController,
-                decoration: const InputDecoration(labelText: 'Nom du client'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer le nom du client';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _clientEmailController,
-                decoration: const InputDecoration(labelText: 'Email du client'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer l\'email du client';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _clientPhoneController,
-                decoration: const InputDecoration(labelText: 'Téléphone du client'),
-              ),
-              TextFormField(
-                controller: _roomTypeController,
-                decoration: const InputDecoration(labelText: 'Type de chambre'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer le type de chambre';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _guestsController,
-                decoration: const InputDecoration(labelText: 'Nombre de personnes'),
-                keyboardType: TextInputType.number,
-              ),
-              TextFormField(
-                controller: _checkInDateController,
-                decoration: const InputDecoration(labelText: 'Date d\'arrivée (jj/mm/aaaa)'),
-                onTap: () async {
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now(),
-                    firstDate: DateTime.now(),
-                    lastDate: DateTime(2100),
-                  );
-                  if (date != null) {
-                    _checkInDateController.text = DateFormat('dd/MM/yyyy').format(date);
-                  }
-                },
-              ),
-              TextFormField(
-                controller: _checkOutDateController,
-                decoration: const InputDecoration(labelText: 'Date de départ (jj/mm/aaaa)'),
-                onTap: () async {
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now(),
-                    firstDate: DateTime.now(),
-                    lastDate: DateTime(2100),
-                  );
-                  if (date != null) {
-                    _checkOutDateController.text = DateFormat('dd/MM/yyyy').format(date);
-                  }
-                },
-              ),
+              _field(_clientNameCtrl, 'Nom du client'),
+              _field(_clientEmailCtrl, 'Email du client'),
+              _field(_clientPhoneCtrl, 'Téléphone', required: false),
+              _field(_roomTypeCtrl, 'Type de chambre'),
+              _field(_guestsCtrl, 'Nombre de personnes', isNumber: true, required: false),
+              _datePicker(_checkInCtrl, 'Date d\'arrivée'),
+              _datePicker(_checkOutCtrl, 'Date de départ'),
             ],
           ),
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Annuler'),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
         ElevatedButton(
           onPressed: () async {
             if (_formKey.currentState!.validate()) {
-              // Enregistrer la réservation
               await FirebaseFirestore.instance.collection('reservations').add({
-                'userName': _clientNameController.text,
-                'userEmail': _clientEmailController.text,
-                'userPhone': _clientPhoneController.text,
-                'roomType': _roomTypeController.text,
-                'guests': int.tryParse(_guestsController.text) ?? 1,
-                'checkInDate': _checkInDateController.text,
-                'checkOutDate': _checkOutDateController.text,
-                'status': 'confirmed', // directement confirmée
+                'userName': _clientNameCtrl.text,
+                'userEmail': _clientEmailCtrl.text,
+                'userPhone': _clientPhoneCtrl.text,
+                'roomType': _roomTypeCtrl.text,
+                'guests': int.tryParse(_guestsCtrl.text) ?? 1,
+                'checkInDate': _checkInCtrl.text,
+                'checkOutDate': _checkOutCtrl.text,
+                'status': 'confirmed',
                 'createdAt': FieldValue.serverTimestamp(),
               });
-              Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
             }
           },
           child: const Text('Créer'),
@@ -979,13 +1215,37 @@ class _CreateReservationDialogState extends State<CreateReservationDialog> {
       ],
     );
   }
+
+  Widget _field(TextEditingController ctrl, String label,
+      {bool isNumber = false, bool required = true}) {
+    return TextFormField(
+      controller: ctrl,
+      decoration: InputDecoration(labelText: label),
+      keyboardType: isNumber ? TextInputType.number : null,
+      validator: required ? (v) => (v == null || v.isEmpty) ? 'Champ requis' : null : null,
+    );
+  }
+
+  Widget _datePicker(TextEditingController ctrl, String label) {
+    return TextFormField(
+      controller: ctrl,
+      decoration: InputDecoration(labelText: label),
+      readOnly: true,
+      onTap: () async {
+        final date = await showDatePicker(
+          context: context,
+          initialDate: DateTime.now(),
+          firstDate: DateTime.now(),
+          lastDate: DateTime(2100),
+        );
+        if (date != null) ctrl.text = DateFormat('dd/MM/yyyy').format(date);
+      },
+    );
+  }
 }
 
-
-// PAGE DES ALERTES CLIENTS
 class AlertsPage extends StatefulWidget {
   const AlertsPage({super.key});
-
   @override
   State<AlertsPage> createState() => _AlertsPageState();
 }
@@ -998,101 +1258,67 @@ class _AlertsPageState extends State<AlertsPage> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "Alertes des clients",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
-              ),
+              const Text("Alertes des clients",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
               const SizedBox(height: 10),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _buildFilterChip('Toutes', 'all'),
+                    _chip('Toutes', 'all'),
                     const SizedBox(width: 8),
-                    _buildFilterChip('Nouvelles', 'new'),
+                    _chip('Nouvelles', 'new'),
                     const SizedBox(width: 8),
-                    _buildFilterChip('En cours', 'in_progress'),
+                    _chip('En cours', 'in_progress'),
                     const SizedBox(width: 8),
-                    _buildFilterChip('Résolues', 'resolved'),
+                    _chip('Résolues', 'resolved'),
                   ],
                 ),
               ),
             ],
           ),
         ),
-        
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('alerts')
                 .orderBy('timestamp', descending: true)
                 .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(child: Text('Erreur: ${snapshot.error}'));
-              }
-
-              if (snapshot.connectionState == ConnectionState.waiting) {
+            builder: (ctx, snap) {
+              if (snap.hasError) return Center(child: Text('Erreur: ${snap.error}'));
+              if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
+              final all = snap.data!.docs;
+              final filtered = _filterStatus == 'all'
+                  ? all
+                  : all.where((d) => (d.data() as Map)['status'] == _filterStatus).toList();
 
-              final allAlerts = snapshot.data!.docs;
-              
-              // Filtrage local au lieu de filtrage côté serveur
-              final filteredAlerts = _filterStatus == 'all'
-                  ? allAlerts
-                  : allAlerts.where((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      return data['status'] == _filterStatus;
-                    }).toList();
-
-              if (filteredAlerts.isEmpty) {
+              if (filtered.isEmpty) {
                 return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.notifications_off,
-                        size: 60,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _filterStatus == 'all'
-                            ? "Aucune alerte"
-                            : _filterStatus == 'new'
-                                ? "Aucune nouvelle alerte"
-                                : _filterStatus == 'in_progress'
-                                    ? "Aucune alerte en cours"
-                                    : "Aucune alerte résolue",
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
+                    child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.notifications_off, size: 60, color: Colors.grey[400]),
+                    const SizedBox(height: 16),
+                    Text("Aucune alerte",
+                        style: TextStyle(fontSize: 18, color: Colors.grey[600])),
+                  ],
+                ));
               }
-
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: filteredAlerts.length,
-                itemBuilder: (context, index) {
-                  final alert = filteredAlerts[index];
-                  final data = alert.data() as Map<String, dynamic>;
-                  
+                itemCount: filtered.length,
+                itemBuilder: (ctx, i) {
+                  final alert = filtered[i];
                   return AlertCard(
-                    alertId: alert.id,
-                    data: data,
-                    onStatusChanged: () {
-                      setState(() {});
-                    },
-                  );
+                      alertId: alert.id,
+                      data: alert.data() as Map<String, dynamic>,
+                      onStatusChanged: () => setState(() {}));
                 },
               );
             },
@@ -1102,37 +1328,21 @@ class _AlertsPageState extends State<AlertsPage> {
     );
   }
 
-  Widget _buildFilterChip(String label, String value) {
-    return FilterChip(
-      label: Text(label),
-      selected: _filterStatus == value,
-      onSelected: (selected) {
-        setState(() {
-          _filterStatus = selected ? value : 'all';
-        });
-      },
-      backgroundColor: Colors.grey[300],
-      selectedColor: const Color(0xFF9B4610),
-      labelStyle: TextStyle(
-        color: _filterStatus == value ? Colors.white : Colors.black,
-      ),
-    );
-  }
+  Widget _chip(String label, String value) => FilterChip(
+        label: Text(label),
+        selected: _filterStatus == value,
+        onSelected: (s) => setState(() => _filterStatus = s ? value : 'all'),
+        backgroundColor: Colors.grey[300],
+        selectedColor: const Color(0xFF9B4610),
+        labelStyle: TextStyle(color: _filterStatus == value ? Colors.white : Colors.black),
+      );
 }
 
-// CARTE ALERTE AVEC INTERACTIONS
 class AlertCard extends StatefulWidget {
   final String alertId;
   final Map<String, dynamic> data;
   final VoidCallback onStatusChanged;
-
-  const AlertCard({
-    super.key,
-    required this.alertId,
-    required this.data,
-    required this.onStatusChanged,
-  });
-
+  const AlertCard({super.key, required this.alertId, required this.data, required this.onStatusChanged});
   @override
   State<AlertCard> createState() => _AlertCardState();
 }
@@ -1140,169 +1350,86 @@ class AlertCard extends StatefulWidget {
 class _AlertCardState extends State<AlertCard> {
   bool _isUpdating = false;
 
-  Future<void> _updateAlertStatus(String status) async {
-    setState(() {
-      _isUpdating = true;
-    });
-
+  Future<void> _update(String status) async {
+    setState(() => _isUpdating = true);
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance
-          .collection('alerts')
-          .doc(widget.alertId)
-          .update({
+      await FirebaseFirestore.instance.collection('alerts').doc(widget.alertId).update({
         'status': status,
-        'updatedBy': currentUser?.email ?? 'Réceptionniste',
+        'updatedBy': FirebaseAuth.instance.currentUser?.email ?? 'Réceptionniste',
         'updatedAt': FieldValue.serverTimestamp(),
       });
-
       widget.onStatusChanged();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Alerte marquée comme ${_getStatusText(status)}'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Alerte mise à jour: $status'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     } finally {
-      setState(() {
-        _isUpdating = false;
-      });
+      if (mounted) setState(() => _isUpdating = false);
     }
   }
 
-  Future<void> _deleteAlert() async {
-    final confirmed = await showDialog<bool>(
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text("Confirmer la suppression"),
-        content: const Text("Êtes-vous sûr de vouloir supprimer cette alerte ?"),
+        content: const Text("Supprimer cette alerte ?"),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text("Annuler"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Annuler")),
           ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            child: const Text("Supprimer"),
-          ),
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text("Supprimer")),
         ],
       ),
     );
-
-    if (confirmed == true) {
-      setState(() {
-        _isUpdating = true;
-      });
-
-      try {
-        await FirebaseFirestore.instance
-            .collection('alerts')
-            .doc(widget.alertId)
-            .delete();
-
-        widget.onStatusChanged();
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Alerte supprimée avec succès'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      } finally {
-        setState(() {
-          _isUpdating = false;
-        });
-      }
+    if (ok == true) {
+      await FirebaseFirestore.instance.collection('alerts').doc(widget.alertId).delete();
+      widget.onStatusChanged();
     }
   }
 
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'new':
-        return 'Nouvelle';
-      case 'in_progress':
-        return 'En cours';
-      case 'resolved':
-        return 'Résolue';
-      default:
-        return status;
+  Color _color(String s) {
+    switch (s) {
+      case 'new': return Colors.red;
+      case 'in_progress': return Colors.orange;
+      case 'resolved': return Colors.green;
+      default: return Colors.grey;
     }
   }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'new':
-        return Colors.red;
-      case 'in_progress':
-        return Colors.orange;
-      case 'resolved':
-        return Colors.green;
-      default:
-        return Colors.grey;
+  String _text(String s) {
+    switch (s) {
+      case 'new': return 'Nouvelle';
+      case 'in_progress': return 'En cours';
+      case 'resolved': return 'Résolue';
+      default: return s;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.data;
-    final timestamp = data['timestamp'] as Timestamp?;
-    final updatedAt = data['updatedAt'] as Timestamp?;
-    final time = timestamp != null
-        ? DateFormat('dd/MM/yyyy à HH:mm').format(timestamp.toDate())
-        : 'Date inconnue';
-    final updatedTime = updatedAt != null
-        ? DateFormat('dd/MM/yyyy à HH:mm').format(updatedAt.toDate())
-        : null;
-
-    final status = data['status'] ?? 'new';
-    final roomNumber = data['roomNumber'] ?? 'Non spécifié';
-    final userEmail = data['userEmail'] ?? 'Non spécifié';
-    final userName = data['userName'] ?? 'Client';
-    final message = data['message'] ?? 'Aucune description';
-    final title = data['title'] ?? 'Alerte';
+    final status = widget.data['status'] ?? 'new';
+    final ts = widget.data['timestamp'] as Timestamp?;
+    final time = ts != null ? DateFormat('dd/MM/yyyy à HH:mm').format(ts.toDate()) : 'Date inconnue';
+    final updatedAt = widget.data['updatedAt'] as Timestamp?;
+    final updatedTime = updatedAt != null ? DateFormat('dd/MM/yyyy à HH:mm').format(updatedAt.toDate()) : null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       color: Colors.white,
       elevation: 2,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: _getStatusColor(status),
-          width: 2,
-        ),
-      ),
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: _color(status), width: 2)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Stack(
           children: [
-            if (_isUpdating)
-              const Positioned.fill(
-                child: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-            
+            if (_isUpdating) const Positioned.fill(child: Center(child: CircularProgressIndicator())),
             Opacity(
-              opacity: _isUpdating ? 0.5 : 1.0,
+              opacity: _isUpdating ? 0.5 : 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1310,117 +1437,55 @@ class _AlertCardState extends State<AlertCard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
+                          child: Text(widget.data['title'] ?? 'Alerte',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _getStatusColor(status).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: _getStatusColor(status),
-                          ),
-                        ),
-                        child: Text(
-                          _getStatusText(status),
-                          style: TextStyle(
-                            color: _getStatusColor(status),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
+                            color: _color(status).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _color(status))),
+                        child: Text(_text(status),
+                            style: TextStyle(
+                                color: _color(status), fontWeight: FontWeight.bold, fontSize: 12)),
                       ),
                     ],
                   ),
+                  const Divider(),
+                  _row("Client:",
+                      "${widget.data['userName'] ?? 'Client'} (${widget.data['userEmail'] ?? ''})"),
+                  _row("Chambre:", widget.data['roomNumber'] ?? 'Non spécifié'),
+                  _row("Date:", time),
+                  if (updatedTime != null) _row("Mise à jour:", updatedTime),
+                  if (widget.data['updatedBy'] != null) _row("Traité par:", widget.data['updatedBy']),
+                  _row("Description:", widget.data['message'] ?? ''),
                   const SizedBox(height: 12),
-                  const Divider(color: Colors.grey),
-                  const SizedBox(height: 12),
-                  _buildInfoRow("Client:", "$userName ($userEmail)"),
-                  _buildInfoRow("Chambre:", roomNumber),
-                  _buildInfoRow("Date:", time),
-                  if (updatedTime != null)
-                    _buildInfoRow("Dernière mise à jour:", updatedTime),
-                  if (data['updatedBy'] != null)
-                    _buildInfoRow("Traité par:", data['updatedBy']),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Description:",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    message,
-                    style: const TextStyle(
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  if (status != 'resolved')
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (status == 'new')
-                          ElevatedButton(
-                            onPressed: _isUpdating
-                                ? null
-                                : () => _updateAlertStatus('in_progress'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text("Prendre en charge"),
-                          ),
-                        if (status == 'in_progress')
-                          ElevatedButton(
-                            onPressed: _isUpdating
-                                ? null
-                                : () => _updateAlertStatus('resolved'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text("Marquer comme résolu"),
-                          ),
-                        IconButton(
-                          onPressed: _isUpdating ? null : _deleteAlert,
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                        ),
-                      ],
-                    ),
-                  
-                  if (status == 'resolved')
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      if (status == 'new')
                         ElevatedButton(
-                          onPressed: _isUpdating
-                              ? null
-                              : () => _updateAlertStatus('in_progress'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text("Rouvrir l'alerte"),
-                        ),
-                        const SizedBox(width: 10),
-                        IconButton(
-                          onPressed: _isUpdating ? null : _deleteAlert,
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                        ),
-                      ],
-                    ),
+                            onPressed: _isUpdating ? null : () => _update('in_progress'),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                            child: const Text("Prendre en charge")),
+                      if (status == 'in_progress')
+                        ElevatedButton(
+                            onPressed: _isUpdating ? null : () => _update('resolved'),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green, foregroundColor: Colors.white),
+                            child: const Text("Marquer résolu")),
+                      if (status == 'resolved')
+                        ElevatedButton(
+                            onPressed: _isUpdating ? null : () => _update('in_progress'),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                            child: const Text("Rouvrir")),
+                      IconButton(
+                          onPressed: _isUpdating ? null : _delete,
+                          icon: const Icon(Icons.delete, color: Colors.red)),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1430,40 +1495,21 @@ class _AlertCardState extends State<AlertCard> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
+  Widget _row(String l, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(
+              width: 100,
+              child: Text(l,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          Expanded(child: Text(v, style: const TextStyle(fontSize: 12))),
+        ]),
+      );
 }
 
-// Le reste du code (ReservationsList, OrdersList, CheckInOutList, etc.) reste inchangé
-// ... [Tout le code existant pour les autres pages] ...
-// --- PAGE LISTE DES RÉSERVATIONS ---
 class ReservationsList extends StatelessWidget {
   const ReservationsList({super.key});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
@@ -1471,51 +1517,35 @@ class ReservationsList extends StatelessWidget {
           .collection('reservations')
           .orderBy('createdAt', descending: true)
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}'));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (ctx, snap) {
+        if (snap.hasError) return Center(child: Text('Erreur: ${snap.error}'));
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final reservations = snapshot.data!.docs;
-
-        // Compter les réservations en attente
-        final pendingCount = reservations.where((res) {
-          final data = res.data() as Map<String, dynamic>;
-          return data['status'] == 'pending';
-        }).length;
+        final reservations = snap.data!.docs;
+        final pending = reservations
+            .where((r) => (r.data() as Map)['status'] == 'pending')
+            .length;
 
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Flexible(
-                    child: Text(
-                      "Toutes les réservations",
-                      style: Theme.of(context).textTheme.titleMedium,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                      child: Text("Toutes les réservations",
+                          style: Theme.of(context).textTheme.titleMedium,
+                          overflow: TextOverflow.ellipsis)),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF9B4610),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      "$pendingCount en attente",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
+                        color: const Color(0xFF9B4610),
+                        borderRadius: BorderRadius.circular(20)),
+                    child: Text("$pending en attente",
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
                 ],
               ),
@@ -1524,14 +1554,10 @@ class ReservationsList extends StatelessWidget {
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: reservations.length,
-                itemBuilder: (context, index) {
-                  final reservation = reservations[index];
-                  final data = reservation.data() as Map<String, dynamic>;
-                  
+                itemBuilder: (ctx, i) {
+                  final res = reservations[i];
                   return ReservationCard(
-                    reservationId: reservation.id,
-                    data: data,
-                  );
+                      reservationId: res.id, data: res.data() as Map<String, dynamic>);
                 },
               ),
             ),
@@ -1542,151 +1568,16 @@ class ReservationsList extends StatelessWidget {
   }
 }
 
-// ... (Les autres classes ReservationCard, OrdersList, CheckInOutList, etc. restent inchangées)
-
-// --- PAGE LISTE DES CONVERSATIONS AVEC RECHERCHE ---
-class ConversationsList extends StatefulWidget {
-  const ConversationsList({super.key});
-
-  @override
-  State<ConversationsList> createState() => _ConversationsListState();
-}
-
-class _ConversationsListState extends State<ConversationsList> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Barre de recherche
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: "Rechercher une conversation...",
-              prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                      },
-                    )
-                  : null,
-            ),
-            onChanged: (value) {
-              setState(() {
-                _searchQuery = value.toLowerCase();
-              });
-            },
-          ),
-        ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('chats').snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(child: Text('Erreur: ${snapshot.error}', style: const TextStyle(color: Colors.black)));
-              }
-
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9B4610))));
-              }
-
-              final chats = snapshot.data!.docs;
-
-              // Filtrer les conversations selon la recherche
-              final filteredChats = chats.where((chat) {
-                final data = chat.data() as Map<String, dynamic>;
-                final userEmail = data['userEmail']?.toString().toLowerCase() ?? "";
-                final lastMessage = data['lastMessage']?.toString().toLowerCase() ?? "";
-                
-                return userEmail.contains(_searchQuery) || lastMessage.contains(_searchQuery);
-              }).toList();
-
-              if (filteredChats.isEmpty) {
-                return const Center(child: Text("Aucune conversation", style: TextStyle(color: Colors.black)));
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: filteredChats.length,
-                itemBuilder: (context, index) {
-                  final chat = filteredChats[index];
-                  final data = chat.data() as Map<String, dynamic>;
-                  final lastMessage = data['lastMessage'] ?? '';
-                  final lastMessageTime = data['lastMessageTime'] as Timestamp?;
-                  final userEmail = data['userEmail'] ?? '';
-                  final userId = chat.id;
-
-                  String timeString = '';
-                  if (lastMessageTime != null) {
-                    timeString = DateFormat('dd/MM HH:mm').format(lastMessageTime.toDate());
-                  }
-
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    color: Colors.white,
-                    elevation: 2,
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFF9B4610),
-                        foregroundColor: Colors.white,
-                        child: Icon(Icons.person),
-                      ),
-                      title: Text(userEmail, style: const TextStyle(color: Colors.black)),
-                      subtitle: Text(lastMessage, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black)),
-                      trailing: Text(timeString, style: const TextStyle(fontSize: 12, color: Colors.black)),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ChatPageReceptionV2(chatId: userId, userEmail: userEmail),
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ... (Les autres classes comme ChatPageReception, CheckInRequestCard, etc. restent inchangées)
 class ReservationCard extends StatefulWidget {
   final String reservationId;
   final Map<String, dynamic> data;
-
-  const ReservationCard({
-    super.key,
-    required this.reservationId,
-    required this.data,
-  });
-
+  const ReservationCard({super.key, required this.reservationId, required this.data});
   @override
   State<ReservationCard> createState() => _ReservationCardState();
 }
 
 class _ReservationCardState extends State<ReservationCard> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final _firestore = FirebaseFirestore.instance;
 
   Future<void> _updateReservationStatus(String newStatus) async {
     try {
@@ -1694,53 +1585,37 @@ class _ReservationCardState extends State<ReservationCard> {
         'status': newStatus,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-
-      // Créer une notification pour le client
-      String message = '';
-      String title = '';
-      
-      if (newStatus == 'confirmed') {
-        title = 'Réservation Confirmée';
-        message = 'Votre réservation a été confirmée par la réception';
-      } else if (newStatus == 'cancelled') {
-        title = 'Réservation Annulée';
-        message = 'Votre réservation a été annulée par la réception';
-      } else if (newStatus == 'check-in-requested') {
-        title = 'Demande de Check-in';
-        message = 'Votre demande de check-in a été reçue et est en cours de traitement';
-      } else if (newStatus == 'checked-in') {
-        title = 'Check-in Effectué';
-        message = 'Votre check-in a été confirmé par la réception';
-      } else if (newStatus == 'checked-out') {
-        title = 'Check-out Effectué';
-        message = 'Votre check-out a été effectué par la réception';
+      final userId = widget.data['userId'] as String?;
+      final roomType = widget.data['roomType'] as String? ?? 'chambre';
+      final roomNumber = widget.data['roomNumber'] as String? ?? '';
+      if (userId != null) {
+        switch (newStatus) {
+          case 'confirmed':
+            await NotificationService.notifyReservationConfirmed(
+                userId: userId, reservationId: widget.reservationId, roomType: roomType);
+            break;
+          case 'cancelled':
+            await NotificationService.notifyReservationCancelled(
+                userId: userId, reservationId: widget.reservationId);
+            break;
+          case 'checked-in':
+            await NotificationService.notifyCheckInApproved(
+                userId: userId, reservationId: widget.reservationId, roomNumber: roomNumber);
+            break;
+          case 'checked-out':
+            await NotificationService.notifyCheckOutApproved(
+                userId: userId, reservationId: widget.reservationId);
+            break;
+        }
       }
-
-      if (widget.data['userId'] != null) {
-        await _firestore.collection('notifications').add({
-          'userId': widget.data['userId'],
-          'title': title,
-          'message': message,
-          'type': 'reservation',
-          'reservationId': widget.reservationId,
-          'status': 'unread',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Réservation $newStatus avec succès!"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Réservation mise à jour : $newStatus'),
+            backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -1751,119 +1626,78 @@ class _ReservationCardState extends State<ReservationCard> {
         'status': 'checked-in',
         'actualCheckIn': FieldValue.serverTimestamp(),
       });
-
-      // Créer une notification pour le client
-      if (widget.data['userId'] != null) {
-        await _firestore.collection('notifications').add({
-          'userId': widget.data['userId'],
-          'title': 'Check-in Confirmé',
-          'message': 'Votre check-in a été confirmé. Votre chambre est $roomNumber',
-          'type': 'reservation',
-          'reservationId': widget.reservationId,
-          'status': 'unread',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+      final userId = widget.data['userId'] as String?;
+      if (userId != null) {
+        await NotificationService.notifyCheckInApproved(
+            userId: userId, reservationId: widget.reservationId, roomNumber: roomNumber);
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Chambre $roomNumber attribuée avec succès!"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Chambre $roomNumber attribuée'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     }
   }
 
   void _showAssignRoomDialog() {
-    TextEditingController roomController = TextEditingController();
-    
+    final ctrl = TextEditingController();
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Attribuer une chambre'),
-          content: TextField(
-            controller: roomController,
-            decoration: const InputDecoration(
-              hintText: "Numéro de chambre",
-              border: OutlineInputBorder(),
-            ),
+      builder: (_) => AlertDialog(
+        title: const Text('Attribuer une chambre'),
+        content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(hintText: "Numéro de chambre", border: OutlineInputBorder())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () {
+              if (ctrl.text.isNotEmpty) {
+                _assignRoom(ctrl.text);
+                Navigator.pop(context);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+            child: const Text('Attribuer'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (roomController.text.isNotEmpty) {
-                  _assignRoom(roomController.text);
-                  Navigator.pop(context);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF9B4610),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Attribuer'),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
   }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'pending':
-        return Colors.orange;
-      case 'confirmed':
-        return Colors.blue;
-      case 'check-in-requested':
-        return Colors.deepOrange;
-      case 'checked-in':
-        return Colors.green;
-      case 'checked-out':
-        return Colors.purple;
-      case 'cancelled':
-        return Colors.red;
-      default:
-        return Colors.grey;
+  Color _statusColor(String s) {
+    switch (s) {
+      case 'pending': return Colors.orange;
+      case 'confirmed': return Colors.blue;
+      case 'check-in-requested': return Colors.deepOrange;
+      case 'checked-in': return Colors.green;
+      case 'checked-out': return Colors.purple;
+      case 'cancelled': return Colors.red;
+      default: return Colors.grey;
     }
   }
 
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'pending':
-        return 'En attente';
-      case 'confirmed':
-        return 'Confirmée';
-      case 'check-in-requested':
-        return 'Demande de check-in';
-      case 'checked-in':
-        return 'Check-in';
-      case 'checked-out':
-        return 'Check-out';
-      case 'cancelled':
-        return 'Annulée';
-      default:
-        return status;
+  String _statusText(String s) {
+    switch (s) {
+      case 'pending': return 'En attente';
+      case 'confirmed': return 'Confirmée';
+      case 'check-in-requested': return 'Demande check-in';
+      case 'checked-in': return 'Check-in';
+      case 'checked-out': return 'Check-out';
+      case 'cancelled': return 'Annulée';
+      default: return s;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final checkInDate = widget.data['checkInDate'] is Timestamp
+    final checkIn = widget.data['checkInDate'] is Timestamp
         ? (widget.data['checkInDate'] as Timestamp).toDate()
         : DateTime.now();
-    final checkOutDate = widget.data['checkOutDate'] is Timestamp
+    final checkOut = widget.data['checkOutDate'] is Timestamp
         ? (widget.data['checkOutDate'] as Timestamp).toDate()
         : DateTime.now();
     final status = widget.data['status'] ?? 'pending';
@@ -1872,11 +1706,9 @@ class _ReservationCardState extends State<ReservationCard> {
       margin: const EdgeInsets.only(bottom: 16),
       color: Colors.white,
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1884,207 +1716,81 @@ class _ReservationCardState extends State<ReservationCard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text(
-                    "Réservation #${widget.reservationId.substring(0, 8)}",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.black,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+                    child: Text("Réservation #${widget.reservationId.substring(0, 8)}",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                        overflow: TextOverflow.ellipsis)),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _getStatusColor(status).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _getStatusColor(status),
-                    ),
-                  ),
-                  child: Text(
-                    _getStatusText(status),
-                    style: TextStyle(
-                      color: _getStatusColor(status),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
+                      color: _statusColor(status).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _statusColor(status))),
+                  child: Text(_statusText(status),
+                      style: TextStyle(
+                          color: _statusColor(status), fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
               ],
             ),
+            const Divider(),
+            _row("Client:", widget.data['userName'] ?? widget.data['userEmail'] ?? ''),
+            _row("Email:", widget.data['userEmail'] ?? ''),
+            _row("Téléphone:", widget.data['userPhone'] ?? 'Non spécifié'),
+            _row("Chambre:", widget.data['roomType'] ?? ''),
+            if (widget.data['roomNumber'] != null) _row("N° chambre:", widget.data['roomNumber']),
+            _row("Arrivée:", DateFormat('dd/MM/yyyy').format(checkIn)),
+            _row("Départ:", DateFormat('dd/MM/yyyy').format(checkOut)),
+            _row("Personnes:", "${widget.data['guests'] ?? 1}"),
+            _row("Prix:", "${widget.data['totalAmount'] ?? widget.data['price'] ?? 0} FCFA"),
+            if (widget.data['paymentMethod'] != null) _row("Paiement:", widget.data['paymentMethod']),
             const SizedBox(height: 12),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 12),
-            _buildInfoRow("Client:", widget.data['userName'] ?? widget.data['userEmail'] ?? 'Non spécifié'),
-            _buildInfoRow("Email:", widget.data['userEmail'] ?? 'Non spécifié'),
-            _buildInfoRow("Téléphone:", widget.data['userPhone'] ?? 'Non spécifié'),
-            _buildInfoRow("Chambre:", widget.data['roomType'] ?? 'Non spécifié'),
-            if (widget.data['roomNumber'] != null)
-              _buildInfoRow("Numéro de chambre:", widget.data['roomNumber']),
-            _buildInfoRow("Arrivée:", DateFormat('dd/MM/yyyy').format(checkInDate)),
-            _buildInfoRow("Départ:", DateFormat('dd/MM/yyyy').format(checkOutDate)),
-            _buildInfoRow("Personnes:", "${widget.data['guests'] ?? '1'}"),
-            _buildInfoRow("Prix total:", "${widget.data['totalAmount'] ?? widget.data['price'] ?? 0} FCFA"),
-            if (widget.data['paymentMethod'] != null)
-              _buildInfoRow("Paiement:", widget.data['paymentMethod']),
-            
-            // Afficher les documents soumis pour le check-in
-           // Correction de la section d'affichage des documents
-if (widget.data['checkInDocuments'] != null)
-  Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const SizedBox(height: 12),
-      const Text(
-        "Documents soumis:",
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          fontSize: 14,
-          color: Colors.black,
-        ),
-      ),
-      const SizedBox(height: 8),
-      ...(widget.data['checkInDocuments'] as Map<String, dynamic>).entries.map((entry) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: [
-              Text(
-                "${entry.key}: ",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-              Expanded(
-                child: Text(
-                  entry.value.toString(),
-                  style: const TextStyle(
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    ],
-  ),
-            
-            const SizedBox(height: 16),
-            
-            // Boutons d'action selon le statut
             if (status == 'pending')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  ElevatedButton(
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                ElevatedButton(
                     onPressed: () => _updateReservationStatus('cancelled'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text("Annuler"),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                    child: const Text("Annuler")),
+                const SizedBox(width: 10),
+                ElevatedButton(
                     onPressed: () => _updateReservationStatus('confirmed'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF9B4610),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text("Confirmer"),
-                  ),
-                ],
-              ),
+                        backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+                    child: const Text("Confirmer")),
+              ]),
             if (status == 'check-in-requested')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  ElevatedButton(
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                ElevatedButton(
                     onPressed: _showAssignRoomDialog,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text("Attribuer chambre"),
-                  ),
-                ],
-              ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                    child: const Text("Attribuer chambre")),
+              ]),
             if (status == 'checked-in')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  ElevatedButton(
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                ElevatedButton(
                     onPressed: () => _updateReservationStatus('checked-out'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text("Check-out"),
-                  ),
-                ],
-              ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+                    child: const Text("Check-out")),
+              ]),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  Widget _row(String l, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
+              width: 100,
+              child: Text(l,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 12))),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          Expanded(child: Text(v, style: const TextStyle(color: Colors.black, fontSize: 12))),
+        ]),
+      );
 }
 
-// Les autres classes (OrdersList, CheckInOutList, ConversationsList, etc.) restent similaires
-// mais adaptées pour utiliser les vraies données de Firestore
-
-// --- PAGE LISTE DES COMMANDES ---
 class OrdersList extends StatelessWidget {
   const OrdersList({super.key});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
@@ -2092,52 +1798,32 @@ class OrdersList extends StatelessWidget {
           .collection('commandes')
           .where('statut', whereIn: ['en_attente', 'en_cours', 'terminee'])
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}'));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (ctx, snap) {
+        if (snap.hasError) return Center(child: Text('Erreur: ${snap.error}'));
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final commandes = snapshot.data!.docs;
-
+        final commandes = snap.data!.docs;
         return Container(
           color: Colors.white,
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: Text(
-                        "Commandes en cours",
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                    ),
-                    ),
-                    const SizedBox(width: 10),
+                    const Expanded(
+                        child: Text("Commandes en cours",
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                            overflow: TextOverflow.ellipsis)),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF9B4610),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        "${commandes.length} en cours",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
+                          color: const Color(0xFF9B4610), borderRadius: BorderRadius.circular(20)),
+                      child: Text("${commandes.length} en cours",
+                          style: const TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                     ),
                   ],
                 ),
@@ -2146,14 +1832,9 @@ class OrdersList extends StatelessWidget {
                 child: ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: commandes.length,
-                  itemBuilder: (context, index) {
-                    final commande = commandes[index];
-                    final data = commande.data() as Map<String, dynamic>;
-                    
-                    return CommandeCard(
-                      commandeId: commande.id,
-                      data: data,
-                    );
+                  itemBuilder: (ctx, i) {
+                    final cmd = commandes[i];
+                    return CommandeCard(commandeId: cmd.id, data: cmd.data() as Map<String, dynamic>);
                   },
                 ),
               ),
@@ -2168,94 +1849,72 @@ class OrdersList extends StatelessWidget {
 class CommandeCard extends StatefulWidget {
   final String commandeId;
   final Map<String, dynamic> data;
-
-  const CommandeCard({
-    super.key,
-    required this.commandeId,
-    required this.data,
-  });
-
+  const CommandeCard({super.key, required this.commandeId, required this.data});
   @override
   State<CommandeCard> createState() => _CommandeCardState();
 }
 
 class _CommandeCardState extends State<CommandeCard> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final _firestore = FirebaseFirestore.instance;
 
-  Future<void> _changerStatutCommande(String nouveauStatut) async {
+  Future<void> _changerStatut(String nouveauStatut) async {
     try {
       await _firestore.collection('commandes').doc(widget.commandeId).update({
         'statut': nouveauStatut,
         'dateModification': FieldValue.serverTimestamp(),
       });
-
-      // Créer une notification pour le client
-      String message = '';
-      if (nouveauStatut == 'en_cours') {
-        message = 'Votre commande est en cours de préparation';
-      } else if (nouveauStatut == 'terminee') {
-        message = 'Votre commande a été livrée avec succès';
+      final userId = widget.data['userId'] as String?;
+      final itemName = widget.data['item'] as String? ?? 'votre commande';
+      if (userId != null) {
+        switch (nouveauStatut) {
+          case 'en_cours':
+            await NotificationService.notifyCommandeEnCours(
+                userId: userId, commandeId: widget.commandeId, itemName: itemName);
+            break;
+          case 'terminee':
+            await NotificationService.notifyCommandeTerminee(
+                userId: userId, commandeId: widget.commandeId, itemName: itemName);
+            break;
+          case 'annulee':
+            await NotificationService.notifyCommandeAnnulee(
+                userId: userId, commandeId: widget.commandeId, itemName: itemName);
+            break;
+        }
       }
-
-      await _firestore.collection('notifications').add({
-        'userId': widget.data['userId'],
-        'titre': 'Mise à jour de commande',
-        'message': message,
-        'type': 'commande',
-        'commandeId': widget.commandeId,
-        'statut': 'non_lu',
-        'date': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Statut de la commande mis à jour: $nouveauStatut"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Commande mise à jour : $nouveauStatut'), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
     }
   }
 
-  String _getStatutText(String statut) {
-    switch (statut) {
-      case 'en_attente':
-        return 'En attente';
-      case 'en_cours':
-        return 'Chez le client';
-      case 'terminee':
-        return 'Terminée';
-      case 'annulee':
-        return 'Annulée';
-      default:
-        return statut;
+  Color _color(String s) {
+    switch (s) {
+      case 'en_attente': return Colors.orange;
+      case 'en_cours': return Colors.blue;
+      case 'terminee': return Colors.green;
+      case 'annulee': return Colors.red;
+      default: return Colors.grey;
     }
   }
 
-  Color _getStatutColor(String statut) {
-    switch (statut) {
-      case 'en_attente':
-        return Colors.orange;
-      case 'en_cours':
-        return Colors.blue;
-      case 'terminee':
-        return Colors.green;
-      case 'annulee':
-        return Colors.red;
-      default:
-        return Colors.grey;
+  String _text(String s) {
+    switch (s) {
+      case 'en_attente': return 'En attente';
+      case 'en_cours': return 'Chez le client';
+      case 'terminee': return 'Terminée';
+      case 'annulee': return 'Annulée';
+      default: return s;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final date = (widget.data['date'] as Timestamp).toDate();
+    final date = (widget.data['date'] as Timestamp?)?.toDate() ?? DateTime.now();
+    final statut = widget.data['statut'] ?? 'en_attente';
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -2263,19 +1922,17 @@ class _CommandeCardState extends State<CommandeCard> {
       color: Colors.white,
       elevation: 2,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // En-tête de la commande
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF9B4610).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                      color: const Color(0xFF9B4610).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12)),
                   child: const Icon(Icons.restaurant, color: Color(0xFF9B4610)),
                 ),
                 const SizedBox(width: 12),
@@ -2283,65 +1940,63 @@ class _CommandeCardState extends State<CommandeCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        "Commande #${widget.commandeId.substring(0, 8)}",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Chambre: ${widget.data['chambre'] ?? 'Non spécifié'}",
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 14,
-                        ),
-                      ),
+                      Text("Commande #${widget.commandeId.substring(0, 8)}",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+                      Text("Chambre: ${widget.data['chambre'] ?? 'Non spécifié'}",
+                          style: const TextStyle(fontSize: 13, color: Colors.black)),
                     ],
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _getStatutColor(widget.data['statut']).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _getStatutColor(widget.data['statut']),
-                    ),
-                  ),
-                  child: Text(
-                    _getStatutText(widget.data['statut']),
-                    style: TextStyle(
-                      color: _getStatutColor(widget.data['statut']),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
+                      color: _color(statut).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _color(statut))),
+                  child: Text(_text(statut),
+                      style: TextStyle(color: _color(statut), fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
               ],
             ),
+            const Divider(),
+            _row("Client:", widget.data['userEmail'] ?? ''),
+            _row("Produit:", widget.data['item'] ?? ''),
+            _row("Quantité:", "${widget.data['quantite']}"),
+            _row("Total:", "${widget.data['total']} FCFA"),
+            _row("Date:", DateFormat('dd/MM/yyyy à HH:mm').format(date)),
+            if (widget.data['instructions'] != null && (widget.data['instructions'] as String).isNotEmpty)
+              _row("Instructions:", widget.data['instructions']),
             const SizedBox(height: 12),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 12),
-            
-            // Détails de la commande
-            _buildInfoRow("Client:", widget.data['userEmail'] ?? 'Non spécifié'),
-            _buildInfoRow("Produit:", widget.data['item'] ?? 'Non spécifié'),
-            _buildInfoRow("Quantité:", widget.data['quantite'].toString()),
-            _buildInfoRow("Total:", "${widget.data['total']} FCFA"),
-            _buildInfoRow("Date:", DateFormat('dd/MM/yyyy à HH:mm').format(date)),
-            
-            if (widget.data['instructions'] != null && widget.data['instructions'].isNotEmpty)
-              _buildInfoRow("Instructions:", widget.data['instructions']),
-            
-            const SizedBox(height: 16),
-            
-            // Boutons d'action selon le statut
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
-              children: _getActions(widget.data['statut']),
+              children: [
+                if (statut == 'en_attente') ...[
+                  OutlinedButton(
+                      onPressed: () => _changerStatut('annulee'),
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
+                      child: const Text("Annuler")),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                      onPressed: () => _changerStatut('en_cours'),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+                      child: const Text("Commencer")),
+                ],
+                if (statut == 'en_cours') ...[
+                  OutlinedButton(
+                      onPressed: () => _changerStatut('annulee'),
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
+                      child: const Text("Annuler")),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                      onPressed: () => _changerStatut('terminee'),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+                      child: const Text("Terminer")),
+                ],
+              ],
             ),
           ],
         ),
@@ -2349,102 +2004,21 @@ class _CommandeCardState extends State<CommandeCard> {
     );
   }
 
-  List<Widget> _getActions(String statut) {
-    switch (statut) {
-      case 'en_attente':
-        return [
-          OutlinedButton(
-            onPressed: () {
-              _changerStatutCommande('annulee');
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text("Annuler"),
-          ),
-          const SizedBox(width: 10),
-          ElevatedButton(
-            onPressed: () {
-              _changerStatutCommande('en_cours');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF9B4610),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text("Commencer"),
-          ),
-        ];
-      case 'en_cours':
-        return [
-          OutlinedButton(
-            onPressed: () {
-              _changerStatutCommande('annulee');
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.red,
-              side: const BorderSide(color: Colors.red),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text("Annuler"),
-          ),
-          const SizedBox(width: 10),
-          ElevatedButton(
-            onPressed: () {
-              _changerStatutCommande('terminee');
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF9B4610),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text("Terminer"),
-          ),
-        ];
-      default:
-        return [];
-    }
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  Widget _row(String l, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
+              width: 120,
+              child: Text(l,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 12))),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          Expanded(child: Text(v, style: const TextStyle(color: Colors.black, fontSize: 12))),
+        ]),
+      );
 }
 
-// --- PAGE CHECK-IN / CHECK-OUT ---
 class CheckInOutList extends StatelessWidget {
   const CheckInOutList({super.key});
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -2452,34 +2026,24 @@ class CheckInOutList extends StatelessWidget {
       child: Column(
         children: [
           Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-            ),
+            decoration: const BoxDecoration(color: Colors.white),
             child: const TabBar(
               labelColor: Color(0xFF9B4610),
               unselectedLabelColor: Colors.grey,
               indicatorColor: Color(0xFF9B4610),
               tabs: [
-                Tab(
-                  icon: Icon(Icons.login),
-                  text: "Demandes Check-in",
-                ),
-                Tab(
-                  icon: Icon(Icons.logout),
-                  text: "Demandes Check-out",
-                ),
+                Tab(icon: Icon(Icons.login), text: "Demandes Check-in"),
+                Tab(icon: Icon(Icons.logout), text: "Demandes Check-out"),
               ],
             ),
           ),
           Expanded(
             child: Container(
               color: Colors.white,
-              child: TabBarView(
-                children: [
-                  _buildCheckInRequests(),
-                  _buildCheckOutRequests(),
-                ],
-              ),
+              child: TabBarView(children: [
+                _buildCheckInRequests(),
+                _buildCheckOutRequests(),
+              ]),
             ),
           ),
         ],
@@ -2493,37 +2057,22 @@ class CheckInOutList extends StatelessWidget {
           .collection('checkin_requests')
           .where('status', isEqualTo: 'pending')
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}'));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final requests = snapshot.data!.docs;
-
+        final requests = snap.data?.docs ?? [];
         if (requests.isEmpty) {
           return const Center(
-            child: Text(
-              "Aucune demande de check-in en attente",
-              style: TextStyle(fontSize: 18, color: Colors.black),
-            ),
-          );
+              child: Text("Aucune demande de check-in en attente",
+                  style: TextStyle(fontSize: 18, color: Colors.black)));
         }
-
         return ListView.builder(
           padding: const EdgeInsets.all(16),
           itemCount: requests.length,
-          itemBuilder: (context, index) {
-            final request = requests[index];
-            final data = request.data() as Map<String, dynamic>;
-            
-            return CheckInRequestCard(
-              requestId: request.id,
-              data: data,
-            );
+          itemBuilder: (ctx, i) {
+            final r = requests[i];
+            return CheckInRequestCard(requestId: r.id, data: r.data() as Map<String, dynamic>);
           },
         );
       },
@@ -2536,37 +2085,22 @@ class CheckInOutList extends StatelessWidget {
           .collection('checkout_requests')
           .where('status', isEqualTo: 'pending')
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}'));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-
-        final requests = snapshot.data!.docs;
-
+        final requests = snap.data?.docs ?? [];
         if (requests.isEmpty) {
           return const Center(
-            child: Text(
-              "Aucune demande de check-out en attente",
-              style: TextStyle(fontSize: 18, color: Colors.black),
-            ),
-          );
+              child: Text("Aucune demande de check-out en attente",
+                  style: TextStyle(fontSize: 18, color: Colors.black)));
         }
-
         return ListView.builder(
           padding: const EdgeInsets.all(16),
           itemCount: requests.length,
-          itemBuilder: (context, index) {
-            final request = requests[index];
-            final data = request.data() as Map<String, dynamic>;
-            
-            return CheckOutRequestCard(
-              requestId: request.id,
-              data: data,
-            );
+          itemBuilder: (ctx, i) {
+            final r = requests[i];
+            return CheckOutRequestCard(requestId: r.id, data: r.data() as Map<String, dynamic>);
           },
         );
       },
@@ -2577,931 +2111,269 @@ class CheckInOutList extends StatelessWidget {
 class CheckInRequestCard extends StatefulWidget {
   final String requestId;
   final Map<String, dynamic> data;
-
-  const CheckInRequestCard({
-    super.key,
-    required this.requestId,
-    required this.data,
-  });
-
+  const CheckInRequestCard({super.key, required this.requestId, required this.data});
   @override
   State<CheckInRequestCard> createState() => _CheckInRequestCardState();
 }
 
 class _CheckInRequestCardState extends State<CheckInRequestCard> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final TextEditingController _roomNumberController = TextEditingController();
+  final _firestore = FirebaseFirestore.instance;
+  final _roomCtrl = TextEditingController();
 
-  Future<void> _approveCheckIn() async {
+  Future<void> _approve() async {
     try {
-      // Mettre à jour la demande de check-in
       await _firestore.collection('checkin_requests').doc(widget.requestId).update({
         'status': 'approved',
-        'roomNumber': _roomNumberController.text,
+        'roomNumber': _roomCtrl.text,
         'approvedAt': FieldValue.serverTimestamp(),
       });
-
-      // Mettre à jour la réservation si elle existe
       if (widget.data['reservationId'] != null) {
         await _firestore.collection('reservations').doc(widget.data['reservationId']).update({
           'status': 'checked-in',
-          'roomNumber': _roomNumberController.text,
+          'roomNumber': _roomCtrl.text,
           'actualCheckIn': FieldValue.serverTimestamp(),
         });
       }
-
-      // Envoyer une notification au client
       await _firestore.collection('notifications').add({
         'userId': widget.data['userId'],
         'title': 'Check-in Approuvé',
-        'message': 'Votre check-in a été approuvé. Votre chambre est ${_roomNumberController.text}',
+        'message': 'Votre check-in a été approuvé. Chambre : ${_roomCtrl.text}',
         'type': 'checkin',
         'status': 'unread',
+        'read': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Check-in approuvé avec succès!"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Check-in approuvé!"), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
     }
   }
 
-  Future<void> _rejectCheckIn() async {
+  Future<void> _reject() async {
     try {
-      // Mettre à jour la demande de check-in
       await _firestore.collection('checkin_requests').doc(widget.requestId).update({
         'status': 'rejected',
         'rejectedAt': FieldValue.serverTimestamp(),
       });
-
-      // Envoyer une notification au client
       await _firestore.collection('notifications').add({
         'userId': widget.data['userId'],
         'title': 'Check-in Rejeté',
-        'message': 'Votre demande de check-in a été rejetée. Veuillez contacter la réception.',
+        'message': 'Votre demande de check-in a été rejetée.',
         'type': 'checkin',
         'status': 'unread',
+        'read': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Check-in rejeté!"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Check-in rejeté"), backgroundColor: Colors.red));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
     }
   }
 
   void _showApproveDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Approuver le check-in'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Attribuez un numéro de chambre:'),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _roomNumberController,
-                decoration: const InputDecoration(
-                  hintText: "Numéro de chambre",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (_roomNumberController.text.isNotEmpty) {
-                  _approveCheckIn();
-                  Navigator.pop(context);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF9B4610),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Approuver'),
-            ),
+      builder: (_) => AlertDialog(
+        title: const Text('Approuver le check-in'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Attribuez un numéro de chambre:'),
+            const SizedBox(height: 10),
+            TextField(
+                controller: _roomCtrl,
+                decoration:
+                    const InputDecoration(hintText: "Numéro de chambre", border: OutlineInputBorder())),
           ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () {
+              if (_roomCtrl.text.isNotEmpty) {
+                _approve();
+                Navigator.pop(context);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+            child: const Text('Approuver'),
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final checkInDate = widget.data['checkInDate'] is Timestamp
-        ? (widget.data['checkInDate'] as Timestamp).toDate()
-        : DateTime.now();
-
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       color: Colors.white,
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    "Demande de check-in #${widget.requestId.substring(0, 8)}",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.black,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.orange,
-                    ),
-                  ),
-                  child: const Text(
-                    "En attente",
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            Text("Demande check-in #${widget.requestId.substring(0, 8)}",
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const Divider(),
+            _row("Client:", widget.data['clientName'] ?? ''),
+            _row("Email:", widget.data['clientEmail'] ?? ''),
+            _row("Téléphone:", widget.data['clientPhone'] ?? 'Non spécifié'),
+            _row("Type pièce:", widget.data['idType'] ?? ''),
+            _row("N° pièce:", widget.data['idNumber'] ?? ''),
+            if (widget.data['specialRequests']?.isNotEmpty == true)
+              _row("Demandes:", widget.data['specialRequests']),
             const SizedBox(height: 12),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 12),
-            _buildInfoRow("Client:", widget.data['clientName'] ?? 'Non spécifié'),
-            _buildInfoRow("Email:", widget.data['clientEmail'] ?? 'Non spécifié'),
-            _buildInfoRow("Téléphone:", widget.data['clientPhone'] ?? 'Non spécifié'),
-            _buildInfoRow("Type de pièce:", widget.data['idType'] ?? 'Non spécifié'),
-            _buildInfoRow("Numéro de pièce:", widget.data['idNumber'] ?? 'Non spécifié'),
-            if (widget.data['hasReservation'] != null && widget.data['hasReservation'])
-              _buildInfoRow("Avec réservation:", "Oui"),
-            if (widget.data['hasReservation'] != null && !widget.data['hasReservation'])
-              _buildInfoRow("Avec réservation:", "Non"),
-            _buildInfoRow("Date demande:", DateFormat('dd/MM/yyyy à HH:mm').format(checkInDate)),
-            
-            if (widget.data['specialRequests'] != null && widget.data['specialRequests'].isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Demandes spéciales:",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.data['specialRequests'],
-                    style: const TextStyle(
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            
-            const SizedBox(height: 16),
-            
-            // Boutons d'action
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton(
-                  onPressed: _rejectCheckIn,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text("Rejeter"),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              ElevatedButton(
+                  onPressed: _reject,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                  child: const Text("Rejeter")),
+              const SizedBox(width: 10),
+              ElevatedButton(
                   onPressed: _showApproveDialog,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF9B4610),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text("Approuver"),
-                ),
-              ],
-            ),
+                      backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+                  child: const Text("Approuver")),
+            ]),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  Widget _row(String l, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
+              width: 120,
+              child: Text(l,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 12))),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          Expanded(child: Text(v, style: const TextStyle(color: Colors.black, fontSize: 12))),
+        ]),
+      );
 }
 
 class CheckOutRequestCard extends StatefulWidget {
   final String requestId;
   final Map<String, dynamic> data;
-
-  const CheckOutRequestCard({
-    super.key,
-    required this.requestId,
-    required this.data,
-  });
-
+  const CheckOutRequestCard({super.key, required this.requestId, required this.data});
   @override
   State<CheckOutRequestCard> createState() => _CheckOutRequestCardState();
 }
 
 class _CheckOutRequestCardState extends State<CheckOutRequestCard> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final _firestore = FirebaseFirestore.instance;
 
-  Future<void> _approveCheckOut() async {
+  Future<void> _approve() async {
     try {
-      // Mettre à jour la demande de check-out
       await _firestore.collection('checkout_requests').doc(widget.requestId).update({
         'status': 'approved',
         'approvedAt': FieldValue.serverTimestamp(),
       });
-
-      // Mettre à jour la réservation
       if (widget.data['reservationId'] != null) {
         await _firestore.collection('reservations').doc(widget.data['reservationId']).update({
           'status': 'checked-out',
           'actualCheckOut': FieldValue.serverTimestamp(),
         });
       }
-
-      // Envoyer une notification au client
       await _firestore.collection('notifications').add({
         'userId': widget.data['userId'],
         'title': 'Check-out Approuvé',
         'message': 'Votre check-out a été approuvé. Merci pour votre séjour!',
         'type': 'checkout',
         'status': 'unread',
+        'read': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Check-out approuvé avec succès!"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Check-out approuvé!"), backgroundColor: Colors.green));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
     }
   }
 
-  Future<void> _rejectCheckOut() async {
+  Future<void> _reject() async {
     try {
-      // Mettre à jour la demande de check-out
       await _firestore.collection('checkout_requests').doc(widget.requestId).update({
         'status': 'rejected',
         'rejectedAt': FieldValue.serverTimestamp(),
       });
-
-      // Envoyer une notification au client
-      await _firestore.collection('notifications').add({
-        'userId': widget.data['userId'],
-        'title': 'Check-out Rejeté',
-        'message': 'Votre demande de check-out a été rejetée. Veuillez contacter la réception.',
-        'type': 'checkout',
-        'status': 'unread',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Check-out rejeté!"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Check-out rejeté"), backgroundColor: Colors.red));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final checkOutDate = widget.data['checkOutDate'] is Timestamp
-        ? (widget.data['checkOutDate'] as Timestamp).toDate()
-        : DateTime.now();
-
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       color: Colors.white,
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    "Demande de check-out #${widget.requestId.substring(0, 8)}",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.black,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.orange,
-                    ),
-                  ),
-                  child: const Text(
-                    "En attente",
-                    style: TextStyle(
-                      color: Colors.orange,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            Text("Demande check-out #${widget.requestId.substring(0, 8)}",
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const Divider(),
+            _row("Client:", widget.data['clientName'] ?? ''),
+            _row("Email:", widget.data['clientEmail'] ?? ''),
+            _row("Chambre:", widget.data['roomNumber'] ?? ''),
+            _row("Type chambre:", widget.data['roomType'] ?? 'Non spécifié'),
+            _row("Paiement:", widget.data['paymentMethod'] ?? 'Non spécifié'),
+            _row("Montant:", "${widget.data['totalAmount'] ?? 0} FCFA"),
+            if (widget.data['feedback']?.isNotEmpty == true) _row("Feedback:", widget.data['feedback']),
             const SizedBox(height: 12),
-            const Divider(color: Colors.grey),
-            const SizedBox(height: 12),
-            _buildInfoRow("Client:", widget.data['clientName'] ?? 'Non spécifié'),
-            _buildInfoRow("Email:", widget.data['clientEmail'] ?? 'Non spécifié'),
-            _buildInfoRow("Téléphone:", widget.data['clientPhone'] ?? 'Non spécifié'),
-            _buildInfoRow("Chambre:", widget.data['roomNumber'] ?? 'Non attribué'),
-            _buildInfoRow("Type de chambre:", widget.data['roomType'] ?? 'Non spécifié'),
-            _buildInfoRow("Méthode de paiement:", widget.data['paymentMethod'] ?? 'Non spécifié'),
-            _buildInfoRow("Montant total:", "${widget.data['totalAmount'] ?? 0} FCFA"),
-            _buildInfoRow("Date demande:", DateFormat('dd/MM/yyyy à HH:mm').format(checkOutDate)),
-            
-            if (widget.data['feedback'] != null && widget.data['feedback'].isNotEmpty)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Feedback:",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.data['feedback'],
-                    style: const TextStyle(
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            
-            const SizedBox(height: 16),
-            
-            // Boutons d'action
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton(
-                  onPressed: _rejectCheckOut,
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+              ElevatedButton(
+                  onPressed: _reject,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                  child: const Text("Rejeter")),
+              const SizedBox(width: 10),
+              ElevatedButton(
+                  onPressed: _approve,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text("Rejeter"),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: _approveCheckOut,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF9B4610),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text("Approuver"),
-                ),
-              ],
-            ),
+                      backgroundColor: const Color(0xFF9B4610), foregroundColor: Colors.white),
+                  child: const Text("Approuver")),
+            ]),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  Widget _row(String l, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
+              width: 140,
+              child: Text(l,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 12))),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-
-class _ConversationsListStateV2 extends State<ConversationsList> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('chats').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}', style: const TextStyle(color: Colors.black)));
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9B4610))));
-        }
-
-        final chats = snapshot.data!.docs;
-
-        if (chats.isEmpty) {
-          return const Center(child: Text("Aucune conversation", style: TextStyle(color: Colors.black)));
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: chats.length,
-          itemBuilder: (context, index) {
-            final chat = chats[index];
-            final data = chat.data() as Map<String, dynamic>;
-            final lastMessage = data['lastMessage'] ?? '';
-            final lastMessageTime = data['lastMessageTime'] as Timestamp?;
-            final userEmail = data['userEmail'] ?? '';
-            final userId = chat.id;
-
-            String timeString = '';
-            if (lastMessageTime != null) {
-              timeString = DateFormat('dd/MM HH:mm').format(lastMessageTime.toDate());
-            }
-
-            return Card(
-              margin: const EdgeInsets.only(bottom: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              color: Colors.white,
-              elevation: 2,
-              child: ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: Color(0xFF9B4610),
-                  foregroundColor: Colors.white,
-                  child: Icon(Icons.person),
-                ),
-                title: Text(userEmail, style: const TextStyle(color: Colors.black)),
-                subtitle: Text(lastMessage, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black)),
-                trailing: Text(timeString, style: const TextStyle(fontSize: 12, color: Colors.black)),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ChatPageReceptionV2(chatId: chat.id, userEmail: userEmail),
-                    ),
-                  );
-                },
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-// --- PAGE CHAT POUR RÉCEPTIONNISTE ---
-class ChatPageReceptionV2 extends StatefulWidget {
-  final String chatId;
-  final String userEmail;
-
-  const ChatPageReceptionV2({super.key, required this.chatId, required this.userEmail});
-
-  @override
-  State<ChatPageReceptionV2> createState() => _ChatPageReceptionV2State();
-}
-
-class _ChatPageReceptionV2State extends State<ChatPageReceptionV2> {
- 
-
-  final TextEditingController _controller = TextEditingController();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final user = FirebaseAuth.instance.currentUser;
-  final ScrollController _scrollController = ScrollController();
-
-  void sendMessage() {
-    if (_controller.text.trim().isEmpty) return;
-
-    final message = _controller.text.trim();
-
-    // Ajouter le message à la sous-collection
-    _firestore
-        .collection('chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .add({
-      'senderId': user?.uid,
-      'message': message,
-      'timestamp': FieldValue.serverTimestamp(),
-      'senderEmail': user?.email,
-    }).then((_) {
-      // Mettre à jour le document chat avec le dernier message
-      _firestore.collection('chats').doc(widget.chatId).update({
-        'lastMessage': message,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-      });
-
-      // Faire défiler vers le bas après l'envoi
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            0,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    });
-
-    _controller.clear();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.userEmail, style: const TextStyle(color: Colors.black)),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-        ),
-        child: Column(
-          children: [
-            // Liste des messages
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _firestore
-                    .collection('chats')
-                    .doc(widget.chatId)
-                    .collection('messages')
-                    .orderBy('timestamp', descending: true)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9B4610)),
-                      ),
-                    );
-                  }
-                  
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text("Erreur: ${snapshot.error}", style: const TextStyle(color: Colors.black)),
-                    );
-                  }
-                  
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.chat_bubble_outline,
-                              size: 80, color: Colors.grey.shade400),
-                          const SizedBox(height: 16),
-                          const Text(
-                            "Aucun message",
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.black,
-                            ),
-                          ),
-                          const Text(
-                            "Envoyez votre premier message",
-                            style: TextStyle(color: Colors.black),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  
-                  final docs = snapshot.data!.docs;
-                  return ListView.builder(
-                    controller: _scrollController,
-                    reverse: true,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: docs.length,
-                    itemBuilder: (context, index) {
-                      final data = docs[index].data() as Map<String, dynamic>;
-                      final isMe = data['senderId'] == user?.uid;
-                      final timestamp = data['timestamp'] as Timestamp?;
-                      final time = timestamp != null
-                          ? DateFormat.Hm().format(timestamp.toDate())
-                          : '';
-                      final sender = isMe ? "Vous" : data['senderEmail'] ?? "Client";
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        child: Row(
-                          mainAxisAlignment: isMe
-                              ? MainAxisAlignment.end
-                              : MainAxisAlignment.start,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            if (!isMe)
-                              const CircleAvatar(
-                                backgroundColor: Color(0xFF9B4610),
-                                foregroundColor: Colors.white,
-                                child: Icon(Icons.person),
-                              ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: isMe
-                                    ? CrossAxisAlignment.end
-                                    : CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    sender,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: isMe 
-                                          ? const Color(0xFF9B4610)
-                                          : Colors.black,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12, horizontal: 16),
-                                    decoration: BoxDecoration(
-                                      color: isMe
-                                          ? const Color(0xFF9B4610)
-                                          : Colors.grey[200],
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: const Radius.circular(20),
-                                        topRight: const Radius.circular(20),
-                                        bottomLeft: isMe
-                                            ? const Radius.circular(20)
-                                            : const Radius.circular(4),
-                                        bottomRight: isMe
-                                            ? const Radius.circular(4)
-                                            : const Radius.circular(20),
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.1),
-                                          blurRadius: 4,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Text(
-                                      data['message'],
-                                      style: TextStyle(
-                                        color: isMe
-                                            ? Colors.white
-                                            : Colors.black,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8),
-                                    child: Text(
-                                      time,
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (isMe) ...[
-                              const SizedBox(width: 8),
-                              CircleAvatar(
-                                backgroundColor: const Color(0xFF9B4610).withOpacity(0.3),
-                                foregroundColor: const Color(0xFF9B4610),
-                                child: const Icon(Icons.support_agent),
-                              ),
-                            ],
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            
-            // Zone de saisie
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  vertical: 8, horizontal: 16),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 8,
-                    offset: Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(color: Colors.grey),
-                      ),
-                      child: TextField(
-                        controller: _controller,
-                        minLines: 1,
-                        maxLines: 3,
-                        style: const TextStyle(color: Colors.black),
-                        decoration: InputDecoration(
-                          hintText: "Écrire un message...",
-                          hintStyle: const TextStyle(color: Colors.grey),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 16),
-                          suffixIcon: _controller.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.close, color: Colors.grey),
-                                  onPressed: () {
-                                    _controller.clear();
-                                    setState(() {});
-                                  },
-                                )
-                              : null,
-                        ),
-                        onChanged: (value) => setState(() {}),
-                        onSubmitted: (value) => sendMessage(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _controller.text.trim().isNotEmpty
-                          ? const Color(0xFF9B4610)
-                          : Colors.grey[300],
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: Icon(Icons.send,
-                          color: _controller.text.trim().isNotEmpty
-                              ? Colors.white
-                              : Colors.grey[500]),
-                      onPressed: _controller.text.trim().isNotEmpty
-                          ? sendMessage
-                          : null,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+          Expanded(child: Text(v, style: const TextStyle(color: Colors.black, fontSize: 12))),
+        ]),
+      );
 }

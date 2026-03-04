@@ -1,8 +1,14 @@
+// ============================================================
+// check_in_out_page.dart
+// Page de check-in et check-out pour le client.
+// Le client remplit un formulaire, la demande est envoyée
+// à la réception qui valide et attribue une chambre.
+// ============================================================
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class CheckInOutPage extends StatefulWidget {
   const CheckInOutPage({super.key});
@@ -11,31 +17,46 @@ class CheckInOutPage extends StatefulWidget {
   State<CheckInOutPage> createState() => _CheckInOutPageState();
 }
 
-class _CheckInOutPageState extends State<CheckInOutPage> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  List<Map<String, dynamic>> _reservations = [];
-  bool _isLoading = true;
-  String _errorMessage = '';
-  String _userRole = 'client';
-  bool _showCheckInForm = false;
-  bool _showCheckOutForm = false;
-  bool _hasActiveReservation = false;
-  bool _hasCheckedInReservation = false;
-  bool _hasIndexError = false;
-  String _indexUrl = '';
-  bool _checkInWithoutReservation = false;
+class _CheckInOutPageState extends State<CheckInOutPage>
+    with SingleTickerProviderStateMixin {
+  // ── Couleurs ─────────────────────────────────────────────────────────────
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+  static const _bgLight = Color(0xFFF8F0E5);
 
-  // Contrôleurs pour le formulaire simplifié
-  final TextEditingController _idNumberController = TextEditingController();
-  final TextEditingController _specialRequestsController = TextEditingController();
-  final TextEditingController _feedbackController = TextEditingController();
-  String _selectedIdType = 'Carte d\'identité';
-  String _selectedPaymentMethod = 'Espèces';
+  // ── Services ──────────────────────────────────────────────────────────────
+  final _auth = FirebaseAuth.instance;
+  final _firestore = FirebaseFirestore.instance;
+
+  // ── État de chargement ────────────────────────────────────────────────────
+  bool _isLoading = true;
+  String? _error;
+
+  // ── Informations utilisateur ──────────────────────────────────────────────
+  Map<String, dynamic> _userData = {};
+  String? _activeReservationId; // ID de la réservation confirmée
+  Map<String, dynamic>? _activeReservation; // Données de la réservation active
+  bool _hasCheckedIn = false; // Le client a-t-il déjà fait son check-in ?
+
+  // ── Formulaire check-in ───────────────────────────────────────────────────
+  final _idNumberCtrl = TextEditingController();
+  final _specialRequestsCtrl = TextEditingController();
+  String _selectedIdType = "Carte d'identité";
   String _selectedRoomType = 'Premium';
-  
-  // Prix des chambres
-  final Map<String, int> _roomPrices = {
+  bool _isSubmittingCheckIn = false;
+
+  // ── Formulaire check-out ──────────────────────────────────────────────────
+  final _feedbackCtrl = TextEditingController();
+  String _selectedPayment = 'Espèces';
+  bool _isSubmittingCheckOut = false;
+
+  // ── Navigation interne ────────────────────────────────────────────────────
+  // null = menu principal | 'checkin_with' | 'checkin_without' | 'checkout'
+  String? _currentView;
+
+  // Prix des types de chambres en FCFA
+  static const _roomPrices = {
+    'Standard': 35000,
     'Premium': 48580,
     'Prestige': 58580,
     'Deluxe': 78580,
@@ -44,393 +65,341 @@ class _CheckInOutPageState extends State<CheckInOutPage> {
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _loadData();
   }
 
   @override
   void dispose() {
-    _idNumberController.dispose();
-    _specialRequestsController.dispose();
-    _feedbackController.dispose();
+    _idNumberCtrl.dispose();
+    _specialRequestsCtrl.dispose();
+    _feedbackCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserData() async {
-    final user = _auth.currentUser;
-    if (user == null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Utilisateur non connecté';
-      });
-      return;
-    }
+  // ── Chargement des données ────────────────────────────────────────────────
 
-    try {
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        setState(() {
-          _userRole = userDoc.data()?['role'] ?? 'client';
-        });
-      }
-      await _loadReservations();
-    } catch (e) {
-      print("Erreur de chargement du rôle utilisateur: $e");
-      await _loadReservations();
-    }
-  }
-
-  Future<void> _loadReservations() async {
-    final user = _auth.currentUser;
-    if (user == null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Utilisateur non connecté';
-      });
-      return;
-    }
-
-    try {
-      QuerySnapshot snapshot;
-      
-      if (_userRole == 'admin' || _userRole == 'staff') {
-        // Pour le staff, charger toutes les réservations
-        snapshot = await _firestore
-            .collection('reservations')
-            .get();
-      } else {
-        // Pour les clients, charger seulement leurs réservations
-        snapshot = await _firestore
-            .collection('reservations')
-            .where('userId', isEqualTo: user.uid)
-            .get();
-      }
-
-      // Filtrer les réservations après les avoir récupérées
-      final allReservations = snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return {'id': doc.id, ...data};
-      }).toList();
-
-      // Filtrer pour n'avoir que les réservations actives
-      setState(() {
-        _reservations = allReservations.where((reservation) {
-          final status = reservation['status'] ?? '';
-          return status == 'confirmed' || status == 'checked-in';
-        }).toList();
-
-        _hasActiveReservation = _reservations.isNotEmpty;
-        _hasCheckedInReservation = _reservations.any((reservation) => reservation['status'] == 'checked-in');
-        _isLoading = false;
-        _hasIndexError = false;
-      });
-    } catch (e) {
-      print("Erreur de chargement des réservations: $e");
-      
-      // Vérifier si c'est une erreur d'index
-      if (e.toString().contains('index') && e.toString().contains('create_composite')) {
-        final regex = RegExp(r'https://console\.firebase\.google\.com[^\s]+');
-        final match = regex.firstMatch(e.toString());
-
-        setState(() {
-          _isLoading = false;
-          _hasIndexError = true;
-          _errorMessage = 'Configuration requise pour afficher les réservations';
-          if (match != null) {
-            _indexUrl = match.group(0)!;
-          }
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Erreur de chargement des réservations';
-        });
-      }
-    }
-  }
-
-  Future<void> _launchIndexUrl() async {
-    if (_indexUrl.isNotEmpty) {
-      final Uri url = Uri.parse(_indexUrl);
-      if (!await launchUrl(url)) {
-        throw Exception('Impossible d\'ouvrir l\'URL: $url');
-      }
-    }
-  }
-
-  Future<void> _submitCheckInRequest(bool hasReservation, [Map<String, dynamic>? reservation]) async {
-    if (_idNumberController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez saisir votre numéro de pièce d\'identité')),
-      );
-      return;
-    }
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
     try {
       final user = _auth.currentUser;
-      if (user == null) return;
+      if (user == null) {
+        setState(() {
+          _error = 'Utilisateur non connecté';
+          _isLoading = false;
+        });
+        return;
+      }
 
-      // Récupérer les informations utilisateur depuis Firestore
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      final userData = userDoc.data() ?? {};
+      // Charge le profil utilisateur
+      final userDoc =
+          await _firestore.collection('users').doc(user.uid).get();
+      if (userDoc.exists) {
+        _userData = userDoc.data()!;
+      }
 
+      // Cherche une réservation confirmée ou en check-in pour ce client
+      final reservSnap = await _firestore
+          .collection('reservations')
+          .where('userId', isEqualTo: user.uid)
+          .where('statut', whereIn: ['confirmée', 'checkin'])
+          .limit(1)
+          .get();
+
+      if (reservSnap.docs.isNotEmpty) {
+        _activeReservationId = reservSnap.docs.first.id;
+        _activeReservation = {
+          'id': _activeReservationId,
+          ...reservSnap.docs.first.data(),
+        };
+        _hasCheckedIn =
+            reservSnap.docs.first.data()['statut'] == 'checkin';
+      }
+
+      setState(() => _isLoading = false);
+    } catch (e) {
+      setState(() {
+        _error = 'Erreur de chargement : $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  // ── Soumission demande check-in ───────────────────────────────────────────
+
+  Future<void> _submitCheckIn({required bool hasReservation}) async {
+    if (_idNumberCtrl.text.trim().isEmpty) {
+      _showSnack(
+          'Veuillez saisir votre numéro de pièce d\'identité.',
+          Colors.orange);
+      return;
+    }
+
+    setState(() => _isSubmittingCheckIn = true);
+
+    try {
+      final user = _auth.currentUser!;
+      final batch = _firestore.batch();
+
+      // Données communes du check-in
       final checkInData = {
-        'clientName': userData['name'] ?? '',
-        'clientEmail': user.email ?? '',
-        'clientPhone': userData['phone'] ?? '',
-        'idType': _selectedIdType,
-        'idNumber': _idNumberController.text,
-        'specialRequests': _specialRequestsController.text,
-        'checkInDate': FieldValue.serverTimestamp(),
-        'status': 'pending',
         'userId': user.uid,
         'userEmail': user.email,
+        'userName': _userData['name'] ?? user.email,
+        'userPhone': _userData['phone'] ?? '',
+        'idType': _selectedIdType,
+        'idNumber': _idNumberCtrl.text.trim(),
+        'specialRequests': _specialRequestsCtrl.text.trim(),
         'hasReservation': hasReservation,
-        'reservationId': reservation != null ? reservation['id'] : null,
-        'roomType': hasReservation ? (reservation?['roomType'] ?? 'Premium') : _selectedRoomType,
-        'price': hasReservation ? (reservation?['price'] ?? _roomPrices['Premium']) : _roomPrices[_selectedRoomType],
+        'reservationId': hasReservation ? _activeReservationId : null,
+        'roomType': hasReservation
+            ? (_activeReservation?['chambre'] ?? _selectedRoomType)
+            : _selectedRoomType,
+        'price': hasReservation
+            ? (_activeReservation?['prixTotal'] ??
+                _roomPrices[_selectedRoomType])
+            : _roomPrices[_selectedRoomType],
+        'status': 'pending', // La réception doit valider
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // Enregistrer la demande de check-in
-      await _firestore.collection('checkin_requests').add(checkInData);
+      // Enregistre la demande de check-in
+      final checkInRef = _firestore.collection('checkin_requests').doc();
+      batch.set(checkInRef, checkInData);
 
-      // Envoyer une notification à l'administration
-      await _firestore.collection('notifications').add({
+      // Notification pour la réception
+      final notifRef = _firestore.collection('notifications').doc();
+      batch.set(notifRef, {
         'type': 'checkin_request',
         'title': 'Nouvelle demande de check-in',
-        'message': '${userData['name'] ?? user.email} a demandé à effectuer un check-in',
+        'message':
+            '${_userData['name'] ?? user.email} souhaite effectuer un check-in',
+        'checkInId': checkInRef.id,
+        'priority': 'high',
         'timestamp': FieldValue.serverTimestamp(),
         'read': false,
-        'priority': 'high',
       });
 
-      // Réinitialiser le formulaire
-      _idNumberController.clear();
-      _specialRequestsController.clear();
-      setState(() {
-        _showCheckInForm = false;
-        _checkInWithoutReservation = false;
-      });
+      await batch.commit();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Demande de check-in envoyée avec succès!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      _idNumberCtrl.clear();
+      _specialRequestsCtrl.clear();
+      setState(() => _currentView = null);
+      _showSnack(
+          '✅ Demande envoyée ! La réception va vous prendre en charge.',
+          Colors.green);
+      _loadData(); // Recharge les données
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de l\'envoi de la demande: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSnack('Erreur : $e', Colors.red);
+    } finally {
+      setState(() => _isSubmittingCheckIn = false);
     }
   }
 
-  Future<void> _submitCheckOutRequest(Map<String, dynamic> reservation) async {
+  // ── Soumission demande check-out ──────────────────────────────────────────
+
+  Future<void> _submitCheckOut() async {
+    if (_activeReservation == null) {
+      _showSnack('Aucune réservation active trouvée.', Colors.orange);
+      return;
+    }
+
+    setState(() => _isSubmittingCheckOut = true);
+
     try {
-      final user = _auth.currentUser;
-      if (user == null) return;
+      final user = _auth.currentUser!;
+      final batch = _firestore.batch();
 
-      // Récupérer les informations utilisateur depuis Firestore
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      final userData = userDoc.data() ?? {};
-
-      final checkOutData = {
-        'clientName': userData['name'] ?? '',
-        'clientEmail': user.email ?? '',
-        'clientPhone': userData['phone'] ?? '',
-        'reservationId': reservation['id'],
-        'roomNumber': reservation['roomNumber'] ?? 'Non attribué',
-        'roomType': reservation['roomType'] ?? 'Chambre',
-        'paymentMethod': _selectedPaymentMethod,
-        'totalAmount': reservation['totalAmount'] ?? reservation['price'] ?? 0,
-        'feedback': _feedbackController.text,
-        'checkOutDate': FieldValue.serverTimestamp(),
-        'status': 'pending',
+      // Enregistre la demande de check-out
+      final checkOutRef =
+          _firestore.collection('checkout_requests').doc();
+      batch.set(checkOutRef, {
         'userId': user.uid,
         'userEmail': user.email,
+        'userName': _userData['name'] ?? user.email,
+        'reservationId': _activeReservationId,
+        'roomNumber': _activeReservation?['chambre'] ?? 'Non attribué',
+        'paymentMethod': _selectedPayment,
+        'totalAmount':
+            _activeReservation?['prixTotal'] ?? 0,
+        'feedback': _feedbackCtrl.text.trim(),
+        'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+      });
 
-      // Enregistrer la demande de check-out
-      await _firestore.collection('checkout_requests').add(checkOutData);
-
-      // Envoyer une notification à l'administration
-      await _firestore.collection('notifications').add({
+      // Notification pour la réception
+      final notifRef = _firestore.collection('notifications').doc();
+      batch.set(notifRef, {
         'type': 'checkout_request',
         'title': 'Nouvelle demande de check-out',
-        'message': '${userData['name'] ?? user.email} a demandé à effectuer un check-out',
+        'message':
+            '${_userData['name'] ?? user.email} souhaite effectuer un check-out',
+        'checkOutId': checkOutRef.id,
+        'priority': 'high',
         'timestamp': FieldValue.serverTimestamp(),
         'read': false,
-        'priority': 'high',
       });
 
-      // Réinitialiser le formulaire
-      _feedbackController.clear();
-      setState(() {
-        _showCheckOutForm = false;
-      });
+      await batch.commit();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Demande de check-out envoyée avec succès!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      _feedbackCtrl.clear();
+      setState(() => _currentView = null);
+      _showSnack(
+          '✅ Demande de check-out envoyée ! Merci pour votre séjour.',
+          Colors.green);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de l\'envoi de la demande: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showSnack('Erreur : $e', Colors.red);
+    } finally {
+      setState(() => _isSubmittingCheckOut = false);
     }
   }
+
+  void _showSnack(String msg, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: color,
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ));
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final isWeb = MediaQuery.of(context).size.width > 600;
-    final isStaff = _userRole == 'admin' || _userRole == 'staff';
+    final isWeb = MediaQuery.of(context).size.width > 700;
 
     return Scaffold(
+      backgroundColor: _bgLight,
       appBar: AppBar(
-        title: Text(isStaff ? 'Gestion des Check-in/Check-out' : 'Check-in/Check-out'),
-        backgroundColor: const Color(0xFF9B4610),
+        title: Text(_currentView == null
+            ? 'Check-in / Check-out'
+            : _currentView == 'checkout'
+                ? 'Check-out'
+                : 'Check-in'),
+        backgroundColor: _primary,
         foregroundColor: Colors.white,
-        leading: (_showCheckInForm || _showCheckOutForm) && !isWeb
+        elevation: 0,
+        leading: _currentView != null
             ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () {
-                  setState(() {
-                    _showCheckInForm = false;
-                    _showCheckOutForm = false;
-                    _checkInWithoutReservation = false;
-                  });
-                },
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () =>
+                    setState(() => _currentView = null),
               )
             : null,
       ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFF8F0E5), Color(0xFFFDF8F3)],
-          ),
-        ),
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Color(0xFF9B4610)))
-            : _hasIndexError
-                ? SingleChildScrollView(child: _buildIndexErrorWidget(isWeb))
-                : _errorMessage.isNotEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error, size: 60, color: Colors.red),
-                            const SizedBox(height: 16),
-                            Text(
-                              _errorMessage,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 18),
-                            ),
-                            const SizedBox(height: 20),
-                            ElevatedButton(
-                              onPressed: _loadReservations,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF9B4610),
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text('Réessayer'),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _showCheckInForm
-                        ? _buildCheckInForm(isWeb, !_checkInWithoutReservation && _hasActiveReservation)
-                        : _showCheckOutForm
-                            ? _buildCheckOutForm(isWeb)
-                            : SingleChildScrollView(child: _buildMainOptions(isWeb, isStaff)),
-      ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: _primary))
+          : _error != null
+              ? _buildError(isWeb)
+              : _currentView == null
+                  ? _buildMainMenu(isWeb)
+                  : _currentView == 'checkout'
+                      ? _buildCheckOutForm(isWeb)
+                      : _buildCheckInForm(isWeb),
     );
   }
 
-  Widget _buildIndexErrorWidget(bool isWeb) {
-    return Padding(
-      padding: EdgeInsets.all(isWeb ? 40.0 : 20.0),
+  // ── Menu principal ────────────────────────────────────────────────────────
+
+  Widget _buildMainMenu(bool isWeb) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(isWeb ? 40 : 20),
       child: Center(
-        child: Container(
-          constraints: isWeb ? const BoxConstraints(maxWidth: 600) : null,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.build, size: 60, color: Colors.orange),
-              const SizedBox(height: 20),
-              const Text(
-                'Configuration requise',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Pour afficher vos réservations, une configuration technique est nécessaire.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 20),
-              Card(
-                color: Colors.orange[50],
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Les réservations ont bien été enregistrées',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Même si les données ne s\'affichent pas actuellement, soyez assuré que les réservations ont été enregistrées avec succès.',
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      if (_indexUrl.isNotEmpty)
-                        Column(
-                          children: [
-                            const Text(
-                              'Un administrateur doit configurer la base de données:',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 10),
-                            ElevatedButton(
-                              onPressed: _launchIndexUrl,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF9B4610),
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text('Configurer la base de données'),
-                            ),
-                          ],
-                        ),
-                    ],
+              // En-tête illustré
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_primary, _dark],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.hotel_rounded,
+                        size: 52, color: Colors.white),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Check-in / Check-out',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Bonjour ${_userData['name'] ?? ''} 👋',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 28),
+
+              // Statut de réservation active
+              if (_activeReservation != null)
+                _buildActiveReservationCard(),
+              if (_activeReservation != null) const SizedBox(height: 20),
+
+              // Options
+              _buildOptionTile(
+                icon: Icons.person_add_rounded,
+                title: 'Check-in sans réservation',
+                subtitle:
+                    'Je n\'ai pas de réservation préalable',
+                color: const Color(0xFF264653),
+                onTap: () =>
+                    setState(() => _currentView = 'checkin_without'),
+              ),
+              const SizedBox(height: 12),
+              _buildOptionTile(
+                icon: Icons.login_rounded,
+                title: 'Check-in avec réservation',
+                subtitle: _activeReservation != null
+                    ? 'Réservation active trouvée ✅'
+                    : 'J\'ai une réservation confirmée',
+                color: const Color(0xFF2A9D8F),
+                onTap: () =>
+                    setState(() => _currentView = 'checkin_with'),
+              ),
+              const SizedBox(height: 12),
+              _buildOptionTile(
+                icon: Icons.logout_rounded,
+                title: 'Check-out',
+                subtitle: _hasCheckedIn
+                    ? 'Finaliser mon séjour ✅'
+                    : 'Quitter l\'hôtel',
+                color: const Color(0xFFE76F51),
+                onTap: () =>
+                    setState(() => _currentView = 'checkout'),
+              ),
               const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _loadReservations,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF9B4610),
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isWeb ? 24 : 16,
-                    vertical: isWeb ? 16 : 12,
-                  ),
-                ),
-                child: const Text('Réessayer'),
+
+              // Bouton actualiser
+              TextButton.icon(
+                onPressed: _loadData,
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Actualiser'),
+                style: TextButton.styleFrom(
+                    foregroundColor: Colors.grey[600]),
               ),
             ],
           ),
@@ -439,124 +408,110 @@ class _CheckInOutPageState extends State<CheckInOutPage> {
     );
   }
 
-  Widget _buildMainOptions(bool isWeb, bool isStaff) {
-    // Débogage pour vérifier les valeurs des variables
-    print('_hasActiveReservation: $_hasActiveReservation');
-    print('_hasCheckedInReservation: $_hasCheckedInReservation');
-    print('Nombre de réservations: ${_reservations.length}');
-    for (var reservation in _reservations) {
-      print('Réservation: ${reservation['id']}, Statut: ${reservation['status']}');
-    }
+  // Carte de réservation active
+  Widget _buildActiveReservationCard() {
+    final res = _activeReservation!;
+    final chambre = res['chambre'] ?? 'Non attribuée';
+    final statut = res['statut'] ?? '';
+    final arrival = _formatDate(res['dateArrivee']);
+    final departure = _formatDate(res['dateDepart']);
 
-    return Padding(
-      padding: EdgeInsets.all(isWeb ? 40.0 : 20.0),
-      child: Center(
-        child: Container(
-          constraints: isWeb ? const BoxConstraints(maxWidth: 600) : null,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.hotel, size: 80, color: Color(0xFF9B4610)),
-              const SizedBox(height: 20),
-              const Text(
-                'Check-in / Check-out',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Choisissez une option pour continuer',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 30),
-              
-              // Toujours afficher l'option de check-in sans réservation
-              _buildOptionCard(
-                context,
-                Icons.person_add,
-                'Check-in sans réservation',
-                'Je n\'ai pas de réservation et je souhaite effectuer un check-in',
-                const Color(0xFF264653),
-                () {
-                  setState(() {
-                    _showCheckInForm = true;
-                    _checkInWithoutReservation = true;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              // Afficher le check-in avec réservation seulement si l'utilisateur a une réservation active
-              // MODIFICATION: Afficher même si _hasActiveReservation est false pour le débogage
-              _buildOptionCard(
-                context,
-                Icons.login,
-                'Check-in avec réservation',
-                'J\'ai déjà une réservation et je souhaite effectuer mon check-in',
-                const Color(0xFF2A9D8F),
-                () {
-                  setState(() {
-                    _showCheckInForm = true;
-                    _checkInWithoutReservation = false;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              // Afficher le check-out seulement si l'utilisateur a une réservation avec statut checked-in
-              // MODIFICATION: Afficher même si _hasCheckedInReservation est false pour le débogage
-              _buildOptionCard(
-                context,
-                Icons.logout,
-                'Check-out',
-                'Effectuer mon check-out et régler ma facture',
-                const Color(0xFFE76F51),
-                () {
-                  setState(() {
-                    _showCheckOutForm = true;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              // Ajouter un bouton de débogage pour recharger les réservations
-              if (!isStaff) // Seulement pour les clients
-                ElevatedButton(
-                  onPressed: _loadReservations,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Actualiser les réservations'),
-                ),
-            ],
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.green.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.event_available_rounded,
+                color: Colors.green, size: 24),
           ),
-        ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Réservation active',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: _dark,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        statut,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.green,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Chambre : $chambre  •  $arrival → $departure',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildOptionCard(BuildContext context, IconData icon, String title, String description, Color color, VoidCallback onTap) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+  // Tuile d'option du menu
+  Widget _buildOptionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.07),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Row(
             children: [
               Container(
-                width: 50,
-                height: 50,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
-                  shape: BoxShape.circle,
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: color, size: 30),
+                child: Icon(icon, color: color, size: 26),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -564,22 +519,22 @@ class _CheckInOutPageState extends State<CheckInOutPage> {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: _dark,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      description,
+                      subtitle,
                       style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
+                          fontSize: 12, color: Colors.grey[600]),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, size: 20, color: Colors.grey),
+              Icon(Icons.arrow_forward_ios_rounded,
+                  size: 14, color: Colors.grey[400]),
             ],
           ),
         ),
@@ -587,335 +542,353 @@ class _CheckInOutPageState extends State<CheckInOutPage> {
     );
   }
 
-  Widget _buildCheckInForm(bool isWeb, bool hasReservation) {
-    final user = _auth.currentUser;
+  // ── Formulaire check-in ───────────────────────────────────────────────────
+
+  Widget _buildCheckInForm(bool isWeb) {
+    final hasReservation = _currentView == 'checkin_with';
+    final hasActiveResv =
+        hasReservation && _activeReservation != null;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.all(isWeb ? 24.0 : 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isWeb)
-            IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                setState(() {
-                  _showCheckInForm = false;
-                  _checkInWithoutReservation = false;
-                });
-              },
-            ),
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    hasReservation ? 'Check-in avec réservation' : 'Check-in sans réservation',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    hasReservation 
-                      ? 'Veuillez confirmer votre identité pour compléter votre check-in'
-                      : 'Veuillez fournir vos informations d\'identité et choisir votre chambre',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Détails de la réservation si applicable
-                  if (hasReservation && _reservations.isNotEmpty) ...[
-                    const Text(
-                      'Détails de la réservation',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
-                    ListTile(
-                      leading: const Icon(Icons.room, color: Colors.grey),
-                      title: const Text('Type de chambre'),
-                      subtitle: Text(_reservations.first['roomType']?.toString() ?? 'Non spécifié'),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.attach_money, color: Colors.grey),
-                      title: const Text('Prix'),
-                      subtitle: Text('${_reservations.first['price'] ?? _roomPrices[_reservations.first['roomType']] ?? 0} FCFA'),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.calendar_today, color: Colors.grey),
-                      title: const Text('Date d\'arrivée'),
-                      subtitle: Text(_formatDate(_reservations.first['checkInDate'])),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.calendar_today, color: Colors.grey),
-                      title: const Text('Date de départ'),
-                      subtitle: Text(_formatDate(_reservations.first['checkOutDate'])),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                  
-                  // Sélection du type de chambre (uniquement pour check-in sans réservation)
-                  if (!hasReservation) ...[
-                    const Text(
-                      'Sélection de la chambre',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: _selectedRoomType,
-                      items: _roomPrices.entries.map((entry) {
-                        return DropdownMenuItem(
-                          value: entry.key,
-                          child: Text('${entry.key} - ${entry.value} FCFA'),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedRoomType = value!;
-                        });
-                      },
-                      decoration: const InputDecoration(
-                        labelText: 'Type de chambre *',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Afficher le prix de la chambre sélectionnée
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.green[50],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.attach_money, color: Colors.green),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Prix: ${_roomPrices[_selectedRoomType]} FCFA',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                  
-                  // Pièce d'identité
-                  const Text(
-                    'Informations d\'identité',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: _selectedIdType,
-                    items: ['Carte d\'identité', 'Passeport', 'Permis de conduire', 'Autre']
-                        .map((type) => DropdownMenuItem(value: type, child: Text(type)))
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedIdType = value!;
-                      });
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'Type de pièce *',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _idNumberController,
-                    decoration: const InputDecoration(
-                      labelText: 'Numéro de la pièce *',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  
-                  // Demandes spéciales
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Demandes spéciales',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _specialRequestsController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Demandes particulières (optionnel)',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: () => _submitCheckInRequest(hasReservation, hasReservation && _reservations.isNotEmpty ? _reservations.first : null),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF9B4610),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'Soumettre la demande de check-in',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ),
-                  ),
-                ],
+      padding: EdgeInsets.all(isWeb ? 32 : 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Titre
+              _buildSectionTitle(
+                hasReservation
+                    ? 'Check-in avec réservation'
+                    : 'Check-in sans réservation',
+                Icons.login_rounded,
               ),
-            ),
+              const SizedBox(height: 20),
+
+              // Si réservation active, affiche les détails
+              if (hasActiveResv)
+                _buildReservationSummary(),
+
+              // Si sans réservation, choix du type de chambre
+              if (!hasActiveResv) ...[
+                _buildLabel('Type de chambre souhaité'),
+                const SizedBox(height: 8),
+                _buildDropdown(
+                  value: _selectedRoomType,
+                  items: _roomPrices.entries.map((e) {
+                    return DropdownMenuItem(
+                      value: e.key,
+                      child: Text(
+                          '${e.key} – ${NumberFormat('#,###', 'fr_FR').format(e.value)} FCFA'),
+                    );
+                  }).toList(),
+                  onChanged: (v) =>
+                      setState(() => _selectedRoomType = v!),
+                ),
+                const SizedBox(height: 16),
+                // Affiche le prix sélectionné
+                _buildPriceBanner(_selectedRoomType),
+              ],
+
+              const SizedBox(height: 20),
+
+              // Pièce d'identité
+              _buildLabel('Type de pièce d\'identité *'),
+              const SizedBox(height: 8),
+              _buildDropdown(
+                value: _selectedIdType,
+                items: [
+                  "Carte d'identité",
+                  'Passeport',
+                  'Permis de conduire',
+                  'Autre',
+                ]
+                    .map((t) =>
+                        DropdownMenuItem(value: t, child: Text(t)))
+                    .toList(),
+                onChanged: (v) =>
+                    setState(() => _selectedIdType = v!),
+              ),
+              const SizedBox(height: 14),
+              _buildLabel('Numéro de la pièce *'),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _idNumberCtrl,
+                hint: 'Ex: AB123456',
+                icon: Icons.badge_outlined,
+              ),
+              const SizedBox(height: 14),
+
+              // Demandes spéciales
+              _buildLabel('Demandes spéciales (optionnel)'),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _specialRequestsCtrl,
+                hint:
+                    'Chambre calme, allergie, lit bébé…',
+                icon: Icons.note_alt_outlined,
+                maxLines: 3,
+              ),
+              const SizedBox(height: 28),
+
+              // Bouton soumettre
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: _isSubmittingCheckIn
+                      ? null
+                      : () => _submitCheckIn(
+                          hasReservation: hasActiveResv),
+                  icon: _isSubmittingCheckIn
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white),
+                        )
+                      : const Icon(Icons.send_rounded, size: 18),
+                  label: Text(
+                    _isSubmittingCheckIn
+                        ? 'Envoi…'
+                        : 'Envoyer la demande de check-in',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+
+  // ── Formulaire check-out ──────────────────────────────────────────────────
 
   Widget _buildCheckOutForm(bool isWeb) {
-    final user = _auth.currentUser;
-    final Map<String, dynamic> reservation = _reservations.isNotEmpty ? _reservations.first : <String, dynamic>{};
-
     return SingleChildScrollView(
-      padding: EdgeInsets.all(isWeb ? 24.0 : 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isWeb)
-            IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                setState(() {
-                  _showCheckOutForm = false;
-                });
-              },
-            ),
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Check-out',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Finalisez votre séjour et réglez votre facture',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Informations de la réservation
-                  const Text(
-                    'Résumé de votre séjour',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    leading: const Icon(Icons.meeting_room, color: Colors.grey),
-                    title: const Text('Chambre'),
-                    subtitle: Text(reservation['roomNumber']?.toString() ?? 'Non attribué'),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.room, color: Colors.grey),
-                    title: const Text('Type de chambre'),
-                    subtitle: Text(reservation['roomType']?.toString() ?? 'Non spécifié'),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.calendar_today, color: Colors.grey),
-                    title: const Text('Date d\'arrivée'),
-                    subtitle: Text(_formatDate(reservation['checkInDate'])),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.calendar_today, color: Colors.grey),
-                    title: const Text('Date de départ'),
-                    subtitle: Text(_formatDate(reservation['checkOutDate'])),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.people, color: Colors.grey),
-                    title: const Text('Nombre de personnes'),
-                    subtitle: Text(reservation['guests']?.toString() ?? '1'),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.attach_money, color: Colors.grey),
-                    title: const Text('Montant total'),
-                    subtitle: Text('${reservation['totalAmount'] ?? reservation['price'] ?? 0} FCFA'),
-                  ),
-                  
-                  // Méthode de paiement
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Méthode de paiement',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: _selectedPaymentMethod,
-                    items: ['Espèces', 'Carte bancaire', 'Mobile Money', 'Virement', 'Autre']
-                        .map((method) => DropdownMenuItem(value: method, child: Text(method)))
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedPaymentMethod = value!;
-                      });
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'Comment souhaitez-vous payer? *',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  
-                  // Feedback
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Votre feedback',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _feedbackController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Partagez votre expérience (optionnel)',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: () => _submitCheckOutRequest(reservation),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF9B4610),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'Confirmer le check-out',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ),
-                  ),
-                ],
+      padding: EdgeInsets.all(isWeb ? 32 : 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle(
+                  'Finaliser votre séjour', Icons.logout_rounded),
+              const SizedBox(height: 20),
+
+              // Résumé du séjour si disponible
+              if (_activeReservation != null)
+                _buildReservationSummary(),
+
+              const SizedBox(height: 20),
+
+              // Méthode de paiement
+              _buildLabel('Méthode de paiement *'),
+              const SizedBox(height: 8),
+              _buildDropdown(
+                value: _selectedPayment,
+                items: [
+                  'Espèces',
+                  'Carte bancaire',
+                  'Mobile Money',
+                  'Virement',
+                ]
+                    .map((m) =>
+                        DropdownMenuItem(value: m, child: Text(m)))
+                    .toList(),
+                onChanged: (v) =>
+                    setState(() => _selectedPayment = v!),
               ),
+              const SizedBox(height: 14),
+
+              // Feedback
+              _buildLabel(
+                  'Partagez votre expérience (optionnel)'),
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _feedbackCtrl,
+                hint:
+                    'Votre avis nous aide à nous améliorer…',
+                icon: Icons.star_outline_rounded,
+                maxLines: 4,
+              ),
+              const SizedBox(height: 28),
+
+              // Bouton checkout
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: _isSubmittingCheckOut
+                      ? null
+                      : _submitCheckOut,
+                  icon: _isSubmittingCheckOut
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white),
+                        )
+                      : const Icon(Icons.logout_rounded,
+                          size: 18),
+                  label: Text(
+                    _isSubmittingCheckOut
+                        ? 'Envoi…'
+                        : 'Confirmer le check-out',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE76F51),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Widgets utilitaires ───────────────────────────────────────────────────
+
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: _primary.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 22, color: _primary),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: _dark,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLabel(String text) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        color: _dark,
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    int maxLines = 1,
+  }) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      style: const TextStyle(fontSize: 15),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: Colors.grey[400]),
+        prefixIcon: Icon(icon, color: _primary, size: 20),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide:
+              const BorderSide(color: _primary, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+            vertical: 14, horizontal: 14),
+      ),
+    );
+  }
+
+  Widget _buildDropdown({
+    required String value,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded,
+              color: _primary),
+          style: const TextStyle(fontSize: 15, color: Colors.black87),
+          items: items,
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPriceBanner(String type) {
+    final price = _roomPrices[type] ?? 0;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.attach_money_rounded,
+              color: Colors.green, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Prix : ${NumberFormat('#,###', 'fr_FR').format(price)} FCFA / nuit',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.green,
             ),
           ),
         ],
@@ -923,12 +896,112 @@ class _CheckInOutPageState extends State<CheckInOutPage> {
     );
   }
 
-  String _formatDate(dynamic timestamp) {
-    if (timestamp is Timestamp) {
-      return DateFormat('dd/MM/yyyy').format(timestamp.toDate());
-    } else if (timestamp is DateTime) {
-      return DateFormat('dd/MM/yyyy').format(timestamp);
+  Widget _buildReservationSummary() {
+    final res = _activeReservation!;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _primary.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.hotel_rounded,
+                  color: _primary, size: 18),
+              const SizedBox(width: 6),
+              const Text(
+                'Détails de la réservation',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: _dark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _infoRow(Icons.meeting_room_rounded, 'Chambre',
+              res['chambre']?.toString() ?? 'Non attribuée'),
+          _infoRow(Icons.calendar_today_rounded, 'Arrivée',
+              _formatDate(res['dateArrivee'])),
+          _infoRow(Icons.calendar_today_rounded, 'Départ',
+              _formatDate(res['dateDepart'])),
+          _infoRow(
+            Icons.attach_money_rounded,
+            'Montant total',
+            '${NumberFormat('#,###', 'fr_FR').format(res['prixTotal'] ?? 0)} FCFA',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: Colors.grey[500]),
+          const SizedBox(width: 6),
+          Text(
+            '$label : ',
+            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildError(bool isWeb) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded,
+                size: 60, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(_error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Réessayer'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: _primary,
+                  foregroundColor: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Convertit un Timestamp ou String en format lisible
+  String _formatDate(dynamic value) {
+    if (value is Timestamp) {
+      return DateFormat('dd/MM/yyyy').format(value.toDate());
+    } else if (value is String) {
+      try {
+        return DateFormat('dd/MM/yyyy')
+            .format(DateTime.parse(value));
+      } catch (_) {}
     }
-    return 'Date inconnue';
+    return 'Non défini';
   }
 }

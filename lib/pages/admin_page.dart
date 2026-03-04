@@ -1,301 +1,34 @@
+// ============================================================
+// admin_page.dart — VERSION CORRIGÉE
+//
+// CORRECTIONS APPORTÉES :
+// ✅ #1 Profil admin : lit name/displayName/email avec fallback complet
+// ✅ #2 Tableau de bord : DateFormat fr_FR avec try/catch sécurisé
+// ✅ #3 Tarifs : clés minuscules + valeurs par défaut pré-remplies
+// ✅ #4 Réceptionnistes : whereIn pour matcher toutes les variantes
+// ✅ #5 case 10 → ClientsBehaviorPage (Profils clients)
+// ✅ #6 Activité personnel et Finances retirés du menu
+// ============================================================
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:google_sign_in/google_sign_in.dart';
 
-// Import des pages depuis le dossier pages
-import 'package:flostay/pages/create_staff_page.dart'; // Modifié: anciennement create_receptionist_page.dart
-import 'package:flostay/pages/chat_admin_page.dart';
+import 'package:flostay/pages/create_staff_page.dart';
 import 'package:flostay/pages/analyses_ia_page.dart';
 import 'package:flostay/pages/create_reservation_page.dart';
-import 'package:flostay/pages/finances_page.dart';
 import 'package:flostay/pages/parametres_page.dart';
 import 'package:flostay/pages/services_page.dart';
-import 'package:flostay/pages/activite_receptionnistes_page.dart';
 
-// Import des pages depuis le dossier admin
 import 'package:flostay/admin/accounts_list.dart';
+import 'package:flostay/pages/chambres_admin_page.dart';
+import 'package:flostay/pages/user_profile_admin_page.dart';
 import 'package:flostay/admin/reservations_admin_list.dart';
 import 'package:flostay/admin/orders_admin_list.dart';
 import 'package:flostay/admin/checkinout_admin_list.dart';
-import 'package:flostay/admin/chat_admin_list.dart';
 
-void main() => runApp(const MyApp());
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'FLOSTAY ADMIN',
-      theme: ThemeData(
-        primaryColor: const Color(0xFF9B4610),
-        colorScheme: ColorScheme.fromSwatch().copyWith(
-          primary: const Color(0xFF9B4610),
-          secondary: const Color(0xFF9B4610),
-        ),
-        scaffoldBackgroundColor: const Color(0xFFF8F4E9),
-        fontFamily: 'Roboto',
-        appBarTheme: AppBarTheme(
-          elevation: 0,
-          backgroundColor: const Color.fromARGB(255, 166, 85, 18),
-          iconTheme: const IconThemeData(color: Colors.white),
-          titleTextStyle: GoogleFonts.roboto(
-            fontSize: kIsWeb ? 24 : 20,
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        textTheme: TextTheme(
-          headlineMedium: GoogleFonts.roboto(
-            fontSize: kIsWeb ? 28 : 24,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF9B4610),
-          ),
-          titleLarge: GoogleFonts.roboto(
-            fontSize: kIsWeb ? 22 : 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.black,
-          ),
-          bodyLarge: TextStyle(
-            fontSize: kIsWeb ? 18 : 16,
-            color: Colors.black87,
-          ),
-        ),
-      ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-
-          if (snapshot.hasData) {
-            return const AdminPage();
-          }
-
-          return const LoginPage();
-        },
-      ),
-    );
-  }
-}
-
-// --- PAGE DE CONNEXION ---
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
-
-  @override
-  State<LoginPage> createState() => _LoginPageState();
-}
-
-class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: kIsWeb
-        ? 'VOTRE_CLIENT_ID_WEB_ICI.apps.googleusercontent.com'
-        : null,
-    scopes: ['email', 'profile'],
-  );
-  bool _isLoading = false;
-  bool _googleLoading = false;
-
-  Future<void> _login() async {
-    setState(() => _isLoading = true);
-
-    try {
-      final userCredential = await _auth.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-
-      // Vérifier le rôle de l'utilisateur
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .get();
-
-      if (userDoc.exists &&
-          (userDoc.data()!['role'] == 'admin' ||
-              userDoc.data()!['role'] == 'receptionniste')) {
-        // Connexion réussie pour admin ou réceptionniste
-      } else {
-        // Déconnecter si l'utilisateur n'a pas le bon rôle
-        await _auth.signOut();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Accès réservé au personnel')),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion: ${e.message}')),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _signInWithGoogle() async {
-    setState(() => _googleLoading = true);
-
-    try {
-      GoogleSignInAccount? googleUser;
-
-      if (kIsWeb) {
-        // Pour le web, utilisez signInWithPopup
-        GoogleAuthProvider googleProvider = GoogleAuthProvider();
-        googleProvider.addScope('email');
-        googleProvider.addScope('profile');
-
-        await _auth.signInWithPopup(googleProvider);
-      } else {
-        // Pour mobile
-        googleUser = await _googleSignIn.signIn();
-        if (googleUser == null) {
-          setState(() => _googleLoading = false);
-          return;
-        }
-
-        final GoogleSignInAuthentication googleAuth =
-            await googleUser.authentication;
-        final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
-        );
-
-        await _auth.signInWithCredential(credential);
-      }
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion Google: ${e.message}')),
-      );
-    } catch (error) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur inattendue: $error')));
-    } finally {
-      setState(() => _googleLoading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F4E9),
-      body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 400),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'FLOSTAY ADMIN',
-                style: GoogleFonts.roboto(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF9B4610),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Espace Administrative',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 32),
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Mot de passe',
-                  prefixIcon: Icon(Icons.lock),
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF9B4610),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Se connecter'),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text('OU', style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _googleLoading ? null : _signInWithGoogle,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: const BorderSide(color: Colors.grey),
-                    ),
-                  ),
-                  child: _googleLoading
-                      ? const CircularProgressIndicator()
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Image.asset(
-                              'assets/images/google_logo.png',
-                              height: 24,
-                              width: 24,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Icon(
-                                  Icons.g_mobiledata,
-                                  size: 24,
-                                  color: Colors.blue[700],
-                                );
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            const Text('Se connecter avec Google'),
-                          ],
-                        ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// --- PAGE ADMIN PRINCIPALE ---
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
 
@@ -304,471 +37,617 @@ class AdminPage extends StatefulWidget {
 }
 
 class _AdminPageState extends State<AdminPage> {
-  int _selectedIndex = 0;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  String? _currentUserRole;
-  String? _currentUserEmail;
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+  static const _bgLight = Color(0xFFF8F0E5);
 
-  final List<Widget> _pages = [
-    const DashboardPage(),
-    const AccountsList(),
-    const ReservationsAdminList(),
-    const OrdersAdminList(),
-    const CheckInOutAdminList(),
-    const AlertsPage(),
-    const TarifsPage(),
-    const ServicesPage(),
-    const ActiviteReceptionnistesPage(),
-    const FinancesPage(),
-    const ParametresPage(),
-    const AnalysesIAPage(),
+  int _selectedIndex = 0;
+  String? _userEmail;
+  String? _userName;
+  String? _userRole;
+
+  // ✅ #6 : Activité personnel (8) et Finances (9) retirés
+  final List<_NavItem> _navItems = [
+    _NavItem(0, Icons.dashboard_rounded, 'Tableau de bord'),
+    _NavItem(1, Icons.people_rounded, 'Utilisateurs'),
+    _NavItem(2, Icons.hotel_rounded, 'Réservations'),
+    _NavItem(3, Icons.restaurant_rounded, 'Commandes'),
+    _NavItem(4, Icons.check_circle_rounded, 'Check-in/out'),
+    _NavItem(5, Icons.warning_rounded, 'Alertes'),
+    _NavItem(6, Icons.attach_money_rounded, 'Tarifs'),
+    _NavItem(7, Icons.room_service_rounded, 'Services'),
+    _NavItem(8, Icons.settings_rounded, 'Paramètres'),
+    _NavItem(9, Icons.auto_awesome_rounded, 'Analyses IA'),
+    _NavItem(10, Icons.psychology_rounded, 'Profils clients'),
+    _NavItem(11, Icons.hotel_rounded, 'Chambres'),
   ];
 
   @override
   void initState() {
     super.initState();
-    _getCurrentUserInfo();
+    _loadUserInfo();
   }
 
-  void _getCurrentUserInfo() async {
-    final user = _auth.currentUser;
-    if (user != null) {
-      _currentUserEmail = user.email;
+  // ✅ #1 : Lit le vrai nom depuis Firestore avec plusieurs fallbacks
+  Future<void> _loadUserInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _userEmail = user.email;
+
+    try {
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
-      if (doc.exists) {
+
+      if (doc.exists && mounted) {
+        final data = doc.data()!;
+        String? name;
+
+        // Cherche dans l'ordre : name → displayName → prenom+nom → firebase displayName → email
+        if ((data['name'] as String?)?.trim().isNotEmpty == true) {
+          name = data['name'];
+        } else if ((data['displayName'] as String?)?.trim().isNotEmpty == true) {
+          name = data['displayName'];
+        } else if ((data['prenom'] as String?)?.trim().isNotEmpty == true) {
+          final prenom = data['prenom'] ?? '';
+          final nom = data['nom'] ?? '';
+          name = '$prenom $nom'.trim();
+        } else if (user.displayName?.trim().isNotEmpty == true) {
+          name = user.displayName;
+        } else {
+          name = user.email?.split('@').first;
+        }
+
         setState(() {
-          _currentUserRole = doc.get('role');
+          _userName = name;
+          _userRole = data['role'];
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _userName = user.displayName?.isNotEmpty == true
+              ? user.displayName
+              : user.email?.split('@').first;
+          _userRole = 'admin';
         });
       }
     }
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  // ✅ #5 : case 10 → ClientsBehaviorPage ajouté
+  Widget _buildPage(int index) {
+    switch (index) {
+      case 0:  return const _DashboardPage();
+      case 1:  return const AccountsList();
+      case 2:  return const ReservationsAdminList();
+      case 3:  return const OrdersAdminList();
+      case 4:  return const CheckInOutAdminList();
+      case 5:  return const _AlertsAdminPage();
+      case 6:  return const _TarifsPage();
+      case 7:  return const ServicesPage();
+      case 8:  return const ParametresPage();
+      case 9:  return const AnalysesIAPage();
+      case 10: return const _ClientsProfilsPage();
+      case 11: return const ChambresAdminPage();
+      default: return const _DashboardPage();
+    }
   }
 
-  Future<void> _signOut() async {
-    await _auth.signOut();
-  }
+  Future<void> _signOut() async => FirebaseAuth.instance.signOut();
+
+  String get _initial => (_userName?.isNotEmpty == true
+          ? _userName![0]
+          : _userEmail?.isNotEmpty == true
+              ? _userEmail![0]
+              : 'A')
+      .toUpperCase();
 
   @override
   Widget build(BuildContext context) {
+    final isWeb = MediaQuery.of(context).size.width > 700;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          "FLOSTAY ADMIN",
-          style: GoogleFonts.roboto(
-            fontSize: 20,
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF9B4610),
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _signOut,
-            tooltip: "Se déconnecter",
-          ),
-        ],
-      ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: <Widget>[
-            UserAccountsDrawerHeader(
-              accountName: Text(
-                _currentUserRole == 'admin'
-                    ? 'Administrateur'
-                    : 'Réceptionniste',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              accountEmail: Text(_currentUserEmail ?? ''),
-              currentAccountPicture: CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Text(
-                  _currentUserEmail != null && _currentUserEmail!.isNotEmpty
-                      ? _currentUserEmail![0].toUpperCase()
-                      : 'A',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    color: Color(0xFF9B4610),
-                  ),
+      backgroundColor: _bgLight,
+      appBar: _buildAppBar(isWeb),
+      drawer: isWeb ? null : _buildDrawer(),
+      body: isWeb
+          ? Row(children: [
+              _buildSidebar(),
+              // ✅ IndexedStack évite le bug de rechargement entre pages
+              Expanded(
+                child: IndexedStack(
+                  index: _selectedIndex,
+                  children: List.generate(12, (i) => _buildPage(i)),
                 ),
               ),
-              decoration: const BoxDecoration(color: Color(0xFF9B4610)),
+            ])
+          // ✅ Mobile : même fix
+          : IndexedStack(
+              index: _selectedIndex,
+              children: List.generate(12, (i) => _buildPage(i)),
             ),
-            _buildDrawerItem(Icons.dashboard, 'Tableau de bord', 0),
-            _buildDrawerItem(Icons.people, 'Utilisateurs', 1),
-            _buildDrawerItem(Icons.hotel, 'Réservations', 2),
-            _buildDrawerItem(Icons.room_service, 'Commandes', 3),
-            _buildDrawerItem(Icons.check_circle, 'Check-in/out', 4),
-            _buildDrawerItem(Icons.notifications, 'Alertes', 5),
-            _buildDrawerItem(Icons.attach_money, 'Gestion des tarifs', 6),
-            _buildDrawerItem(Icons.room_service, 'Services', 7),
-            _buildDrawerItem(Icons.assignment, 'Activité réceptionnistes', 8),
-            _buildDrawerItem(Icons.account_balance, 'Finances', 9),
-            _buildDrawerItem(Icons.settings, 'Paramètres', 10),
-            _buildDrawerItem(Icons.analytics, 'Analyses IA', 11),
-            const Divider(),
-            _buildDrawerItem(Icons.logout, 'Déconnexion', -1, isLogout: true),
-          ],
-        ),
-      ),
-      body: _selectedIndex >= 0 && _selectedIndex < _pages.length
-          ? _pages[_selectedIndex]
-          : const DashboardPage(),
     );
   }
 
-  Widget _buildDrawerItem(
-    IconData icon,
-    String title,
-    int index, {
-    bool isLogout = false,
-  }) {
-    return ListTile(
-      leading: Icon(icon, color: const Color(0xFF9B4610)),
-      title: Text(title),
-      onTap: () {
-        if (isLogout) {
-          _signOut();
-        } else {
-          _onItemTapped(index);
-        }
-        Navigator.pop(context); // Close the drawer
-      },
+  AppBar _buildAppBar(bool isWeb) {
+    return AppBar(
+      title: Text(
+        'FLOSTAY ADMIN',
+        style: GoogleFonts.roboto(
+          fontSize: isWeb ? 20 : 18,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+          letterSpacing: 2,
+        ),
+      ),
+      centerTitle: false,
+      backgroundColor: _primary,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      actions: [
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('alerts')
+              .where('status', isEqualTo: 'new')
+              .snapshots(),
+          builder: (ctx, snap) {
+            final count = snap.data?.docs.length ?? 0;
+            return Stack(
+              alignment: Alignment.topRight,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_rounded),
+                  onPressed: () => setState(() => _selectedIndex = 5),
+                ),
+                if (count > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                          color: Colors.red, shape: BoxShape.circle),
+                      child: Text('$count',
+                          style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+        IconButton(
+            icon: const Icon(Icons.logout_rounded), onPressed: _signOut),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
+
+  Widget _buildSidebar() {
+    return Container(
+      width: 240,
+      color: Colors.white,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            color: _primary.withOpacity(0.04),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: _primary,
+                  child: Text(_initial,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        // ✅ Affiche le vrai nom de l'utilisateur connecté
+                        _userName ??
+                            _userEmail?.split('@').first ??
+                            'Admin',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: _dark),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(_userRole ?? 'admin',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey[500])),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: _navItems.length,
+              itemBuilder: (_, i) {
+                final item = _navItems[i];
+                return _SidebarItem(
+                  item: item,
+                  isSelected: _selectedIndex == item.index,
+                  onTap: () => setState(() => _selectedIndex = item.index),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            accountName: Text(
+              _userName ?? _userEmail?.split('@').first ?? 'Admin',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            accountEmail: Text(_userEmail ?? ''),
+            currentAccountPicture: CircleAvatar(
+              backgroundColor: Colors.white,
+              child: Text(_initial,
+                  style: const TextStyle(fontSize: 22, color: _primary)),
+            ),
+            decoration: const BoxDecoration(color: _primary),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              itemCount: _navItems.length,
+              itemBuilder: (ctx, i) {
+                final item = _navItems[i];
+                return ListTile(
+                  leading: Icon(item.icon,
+                      color: _selectedIndex == item.index
+                          ? _primary
+                          : Colors.grey[600],
+                      size: 22),
+                  title: Text(item.label,
+                      style: TextStyle(
+                        fontWeight: _selectedIndex == item.index
+                            ? FontWeight.w700
+                            : FontWeight.normal,
+                        color: _selectedIndex == item.index
+                            ? _primary
+                            : Colors.black87,
+                      )),
+                  onTap: () {
+                    setState(() => _selectedIndex = item.index);
+                    Navigator.pop(context);
+                  },
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.logout_rounded,
+                color: Colors.red, size: 22),
+            title: const Text('Déconnexion',
+                style: TextStyle(color: Colors.red)),
+            onTap: () {
+              Navigator.pop(context);
+              _signOut();
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }
 
-// --- DASHBOARD PAGE ---
-class DashboardPage extends StatelessWidget {
-  const DashboardPage({super.key});
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _NavItem {
+  final int index;
+  final IconData icon;
+  final String label;
+  const _NavItem(this.index, this.icon, this.label);
+}
+
+class _SidebarItem extends StatelessWidget {
+  final _NavItem item;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _SidebarItem(
+      {required this.item, required this.isSelected, required this.onTap});
+
+  static const _primary = Color(0xFF9B4610);
 
   @override
   Widget build(BuildContext context) {
-    final firestore = FirebaseFirestore.instance;
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      child: Material(
+        color: isSelected ? _primary.withOpacity(0.1) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(item.icon,
+                    size: 20,
+                    color: isSelected ? _primary : Colors.grey[600]),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(item.label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.normal,
+                        color: isSelected ? _primary : Colors.black87,
+                      )),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _DashboardPage extends StatelessWidget {
+  const _DashboardPage();
+
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+
+  @override
+  Widget build(BuildContext context) {
+    final isWeb = MediaQuery.of(context).size.width > 700;
+
+    // ✅ #2 : try/catch pour éviter le crash si la locale n'est pas initialisée
+    String dateStr;
+    try {
+      dateStr =
+          DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(DateTime.now());
+    } catch (_) {
+      dateStr = DateFormat('dd/MM/yyyy').format(DateTime.now());
+    }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isWeb ? 24 : 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "Tableau de bord",
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 20),
+          Text('Tableau de bord',
+              style: TextStyle(
+                  fontSize: isWeb ? 24 : 20,
+                  fontWeight: FontWeight.w800,
+                  color: _dark)),
+          Text(dateStr,
+              style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+          const SizedBox(height: 24),
 
-          // Statistiques
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWideScreen = constraints.maxWidth > 600;
-              return GridView.count(
-                crossAxisCount: isWideScreen ? 4 : 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 0.9,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                padding: const EdgeInsets.only(bottom: 8),
-                children: [
-                  _buildStatCard(
-                    "Clients",
-                    Icons.people,
-                    firestore
+          // Stats
+          LayoutBuilder(builder: (ctx, constraints) {
+            final cols = constraints.maxWidth > 600 ? 4 : 2;
+            return GridView.count(
+              crossAxisCount: cols,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 1.0,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              children: [
+                _StatCard('Clients', Icons.people_rounded,
+                    FirebaseFirestore.instance
                         .collection('users')
                         .where('role', isEqualTo: 'client'),
-                  ),
-                  _buildStatCard(
-                    "Réceptionnistes",
-                    Icons.support_agent,
-                    firestore
+                    const Color(0xFF457B9D)),
+                _StatCard(
+                    'Réceptionnistes',
+                    Icons.support_agent_rounded,
+                    // ✅ #4 : whereIn pour matcher toutes variantes
+                    FirebaseFirestore.instance.collection('users').where(
+                        'role',
+                        whereIn: [
+                          'receptionniste',
+                          'réceptionniste',
+                          'receptionist'
+                        ]),
+                    const Color(0xFF2A9D8F)),
+                _StatCard('Cuisine', Icons.restaurant_rounded,
+                    FirebaseFirestore.instance
                         .collection('users')
-                        .where('role', isEqualTo: 'receptionniste'),
-                  ),
-                  _buildStatCard(
-                    "Administrateurs",
-                    Icons.admin_panel_settings,
-                    firestore
-                        .collection('users')
-                        .where('role', isEqualTo: 'admin'),
-                  ),
-                  _buildStatCard(
-                    "Réservations",
-                    Icons.hotel,
-                    firestore.collection('reservations'),
-                  ),
-                  _buildStatCard(
-                    "Commandes",
-                    Icons.restaurant,
-                    firestore.collection('commandes'),
-                  ),
-                  _buildStatCard(
-                    "Check-in Aujourd'hui",
-                    Icons.login,
-                    firestore
+                        .where('role', isEqualTo: 'cuisine'),
+                    const Color(0xFFE76F51)),
+                _StatCard('Réservations', Icons.hotel_rounded,
+                    FirebaseFirestore.instance.collection('reservations'),
+                    _primary),
+                _StatCard('Commandes', Icons.room_service_rounded,
+                    FirebaseFirestore.instance.collection('orders'),
+                    const Color(0xFF264653)),
+                _StatCard(
+                    'Check-in actifs',
+                    Icons.login_rounded,
+                    FirebaseFirestore.instance
                         .collection('reservations')
-                        .where('checkIn', isEqualTo: true)
-                        .where('checkInDate', isEqualTo: today),
-                  ),
-                  _buildStatCard(
-                    "Check-out Aujourd'hui",
-                    Icons.logout,
-                    firestore
-                        .collection('reservations')
-                        .where('checkOut', isEqualTo: true)
-                        .where('checkOutDate', isEqualTo: today),
-                  ),
-                  _buildStatCard(
-                    "Avis Clients",
-                    Icons.star,
-                    firestore.collection('reviews'),
-                  ),
-                  _buildStatCard(
-                    "Alertes Non Lus",
-                    Icons.warning,
-                    firestore
-                        .collection('alerts')
-                        .where('read', isEqualTo: false),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-          // Actions rapides
-          Text(
-            "Actions rapides",
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 16),
+                        .where('statut', isEqualTo: 'checkin'),
+                    Colors.teal),
+                _StatCard(
+                    'Alertes actives',
+                    Icons.warning_rounded,
+                    FirebaseFirestore.instance.collection('alerts').where(
+                        'status',
+                        whereIn: ['new', 'in_progress']),
+                    Colors.redAccent),
+                _StatCard('Avis clients', Icons.star_rounded,
+                    FirebaseFirestore.instance.collection('reviews'),
+                    Colors.amber),
+              ],
+            );
+          }),
 
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isWideScreen = constraints.maxWidth > 600;
-              return GridView.count(
-                crossAxisCount: isWideScreen ? 4 : 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.3,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                children: [
-                  _buildActionButton("Créer un membre", Icons.person_add, () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CreateStaffPage(),
-                      ),
-                    );
-                  }),
-                  _buildActionButton("Effectuer Réservation", Icons.hotel, () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CreateReservationPage(),
-                      ),
-                    );
-                  }),
-                  _buildActionButton(
-                    "Voir Check-in/out",
-                    Icons.check_circle,
-                    () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const CheckInOutAdminList(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildActionButton("Messages", Icons.message, () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ChatAdminList(),
-                      ),
-                    );
-                  }),
-                ],
-              );
-            },
-          ),
+          const SizedBox(height: 28),
+          Text('Actions rapides',
+              style: TextStyle(
+                  fontSize: isWeb ? 18 : 16,
+                  fontWeight: FontWeight.w700,
+                  color: _dark)),
+          const SizedBox(height: 14),
+          LayoutBuilder(builder: (ctx, constraints) {
+            final cols = constraints.maxWidth > 600 ? 4 : 2;
+            return GridView.count(
+              crossAxisCount: cols,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 1.6,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              children: [
+                _ActionButton('Créer un membre', Icons.person_add_rounded,
+                    () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const CreateStaffPage()))),
+                _ActionButton('Réservation', Icons.hotel_rounded,
+                    () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const CreateReservationPage()))),
+                _ActionButton('Check-in/out', Icons.check_circle_rounded,
+                    () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const CheckInOutAdminList()))),
+                _ActionButton('Analyses IA', Icons.auto_awesome_rounded,
+                    () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const AnalysesIAPage()))),
+              ],
+            );
+          }),
 
-          // Dernières alertes
-          const SizedBox(height: 24),
-          Text(
-            "Dernières Alertes",
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          const SizedBox(height: 16),
-          _buildAlertesList(),
+          const SizedBox(height: 28),
+          Text('Alertes récentes',
+              style: TextStyle(
+                  fontSize: isWeb ? 18 : 16,
+                  fontWeight: FontWeight.w700,
+                  color: _dark)),
+          const SizedBox(height: 14),
+          _buildRecentAlerts(),
         ],
       ),
     );
   }
 
-  Widget _buildStatCard(String title, IconData icon, Query query) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: query.snapshots(),
-      builder: (context, snapshot) {
-        int count = 0;
-        if (snapshot.hasData) count = snapshot.data!.docs.length;
-
-        return Container(
-          padding: const EdgeInsets.all(12),
-          constraints: const BoxConstraints(minHeight: 100, maxHeight: 120),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            border: Border.all(color: const Color(0xFF9B4610).withOpacity(0.2)),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(icon, size: 28, color: const Color(0xFF9B4610)),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.black87,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                "$count",
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF9B4610),
-                  height: 1.0,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildActionButton(
-    String text,
-    IconData icon,
-    VoidCallback onPressed,
-  ) {
-    return SizedBox(
-      height: 90,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF9B4610),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 4,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22),
-            const SizedBox(height: 6),
-            Text(
-              text,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAlertesList() {
+  Widget _buildRecentAlerts() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('alerts')
-          .orderBy('createdAt', descending: true)
+          .orderBy('timestamp', descending: true)
           .limit(5)
           .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(
+              child: CircularProgressIndicator(color: _primary));
         }
-
-        if (snapshot.hasError) {
-          return Center(child: Text('Erreur: ${snapshot.error}'));
-        }
-
-        final alerts = snapshot.data!.docs;
-
+        final alerts = snap.data?.docs ?? [];
         if (alerts.isEmpty) {
-          return const Card(
-            child: ListTile(title: Text("Aucune alerte pour le moment")),
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12)),
+            child: const Row(children: [
+              Icon(Icons.check_circle_rounded, color: Colors.green, size: 20),
+              SizedBox(width: 8),
+              Text('Aucune alerte pour le moment'),
+            ]),
           );
         }
-
         return Column(
           children: alerts.map((doc) {
             final data = doc.data() as Map<String, dynamic>;
-            final title = data['title'] ?? 'Alerte sans titre';
-            final message = data['message'] ?? '';
-            final read = data['read'] ?? false;
-            final createdAt = data['createdAt'] != null
-                ? DateFormat(
-                    'dd/MM/yyyy HH:mm',
-                  ).format((data['createdAt'] as Timestamp).toDate())
-                : 'Date inconnue';
-
-            return Card(
-              color: read ? Colors.white : Colors.red[50],
+            final status = data['status'] ?? 'new';
+            final statusColor = status == 'resolved'
+                ? Colors.green
+                : status == 'in_progress'
+                    ? Colors.orange
+                    : Colors.red;
+            final ts = data['timestamp'] as Timestamp?;
+            final time = ts != null
+                ? DateFormat('dd/MM HH:mm').format(ts.toDate())
+                : '';
+            return Container(
               margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                leading: Icon(
-                  Icons.warning,
-                  color: read ? Colors.grey : Colors.red,
-                ),
-                title: Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: read ? FontWeight.normal : FontWeight.bold,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: statusColor.withOpacity(0.25)),
+              ),
+              child: Row(children: [
+                Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                        color: statusColor, shape: BoxShape.circle)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(data['message'] ?? data['title'] ?? 'Alerte',
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                      Text(data['userName'] ?? '',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey[500])),
+                    ],
                   ),
                 ),
-                subtitle: Text(message),
-                trailing: Text(createdAt, style: const TextStyle(fontSize: 12)),
-                onTap: () {
-                  // Marquer comme lu
-                  FirebaseFirestore.instance
-                      .collection('alerts')
-                      .doc(doc.id)
-                      .update({'read': true});
-                },
-              ),
+                Text(time,
+                    style:
+                        TextStyle(fontSize: 11, color: Colors.grey[400])),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    status == 'resolved'
+                        ? 'Résolu'
+                        : status == 'in_progress'
+                            ? 'En cours'
+                            : 'Nouveau',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor),
+                  ),
+                ),
+              ]),
             );
           }).toList(),
         );
@@ -777,117 +656,618 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
-// PAGE DES ALERTES CLIENTS
-class AlertsPage extends StatefulWidget {
-  const AlertsPage({super.key});
+// ── StatCard ──────────────────────────────────────────────────────────────────
+
+class _StatCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Query query;
+  final Color color;
+  const _StatCard(this.title, this.icon, this.query, this.color);
 
   @override
-  State<AlertsPage> createState() => _AlertsPageState();
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: query.snapshots(),
+      builder: (ctx, snap) {
+        final count = snap.data?.docs.length ?? 0;
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withOpacity(0.15)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)
+            ],
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Icon(icon, size: 20, color: color),
+              ),
+              const SizedBox(height: 8),
+              Text('$count',
+                  style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: color)),
+              const SizedBox(height: 4),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF4A2A10))),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
-class _AlertsPageState extends State<AlertsPage> {
-  String _filterStatus = 'all';
+// ── ActionButton ──────────────────────────────────────────────────────────────
+
+class _ActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+  const _ActionButton(this.label, this.icon, this.onPressed);
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF9B4610),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 22),
+          const SizedBox(height: 6),
+          Text(label,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTES ADMIN
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _AlertsAdminPage extends StatefulWidget {
+  const _AlertsAdminPage();
+  @override
+  State<_AlertsAdminPage> createState() => _AlertsAdminPageState();
+}
+
+class _AlertsAdminPageState extends State<_AlertsAdminPage> {
+  static const _primary = Color(0xFF9B4610);
+  String _filter = 'all';
+
+  Future<void> _updateStatus(String id, String status) async {
+    await FirebaseFirestore.instance.collection('alerts').doc(id).update({
+      'status': status,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedBy': FirebaseAuth.instance.currentUser?.email ?? 'Admin',
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Query query = FirebaseFirestore.instance
+        .collection('alerts')
+        .orderBy('timestamp', descending: true);
+    if (_filter != 'all') query = query.where('status', isEqualTo: _filter);
+
+    return Column(children: [
+      Container(
+        color: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            for (final f in [
+              ('all', 'Toutes'),
+              ('new', 'Nouvelles'),
+              ('in_progress', 'En cours'),
+              ('resolved', 'Résolues'),
+            ])
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(f.$2),
+                  selected: _filter == f.$1,
+                  onSelected: (_) => setState(() => _filter = f.$1),
+                  selectedColor: _primary,
+                  labelStyle: TextStyle(
+                      color:
+                          _filter == f.$1 ? Colors.white : Colors.black87),
+                ),
+              ),
+          ]),
+        ),
+      ),
+      Expanded(
+        child: StreamBuilder<QuerySnapshot>(
+          stream: query.snapshots(),
+          builder: (ctx, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Center(
+                  child: CircularProgressIndicator(color: _primary));
+            }
+            final docs = snap.data?.docs ?? [];
+            if (docs.isEmpty) {
+              return const Center(child: Text('Aucune alerte'));
+            }
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: docs.length,
+              itemBuilder: (ctx, i) {
+                final data = docs[i].data() as Map<String, dynamic>;
+                final status = data['status'] ?? 'new';
+                final statusColor = status == 'resolved'
+                    ? Colors.green
+                    : status == 'in_progress'
+                        ? Colors.orange
+                        : Colors.red;
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: statusColor.withOpacity(0.3)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(
+                              child: Text(
+                                  data['alertTypeLabel'] ??
+                                      data['alertType'] ??
+                                      'Alerte',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14))),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12)),
+                            child: Text(
+                                status == 'resolved'
+                                    ? 'Résolu'
+                                    : status == 'in_progress'
+                                        ? 'En cours'
+                                        : 'Nouveau',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                        ]),
+                        const SizedBox(height: 6),
+                        Text(
+                            '${data['userName'] ?? 'Client'} • Chambre ${data['userRoom'] ?? '?'}',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[600])),
+                        const SizedBox(height: 8),
+                        Text(data['message'] ?? '',
+                            style: const TextStyle(fontSize: 13)),
+                        if (status != 'resolved') ...[
+                          const SizedBox(height: 10),
+                          Row(children: [
+                            if (status == 'new')
+                              OutlinedButton(
+                                onPressed: () => _updateStatus(
+                                    docs[i].id, 'in_progress'),
+                                style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.orange,
+                                    side: const BorderSide(
+                                        color: Colors.orange),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8))),
+                                child: const Text('Prendre en charge',
+                                    style: TextStyle(fontSize: 12)),
+                              ),
+                            const SizedBox(width: 8),
+                            if (status == 'in_progress')
+                              ElevatedButton(
+                                onPressed: () => _updateStatus(
+                                    docs[i].id, 'resolved'),
+                                style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(8))),
+                                child: const Text('Résoudre',
+                                    style: TextStyle(fontSize: 12)),
+                              ),
+                          ]),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    ]);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TARIFS  — ✅ CORRECTIF #3
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _TarifsPage extends StatefulWidget {
+  const _TarifsPage();
+  @override
+  State<_TarifsPage> createState() => _TarifsPageState();
+}
+
+class _TarifsPageState extends State<_TarifsPage> {
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+
+  final _firestore = FirebaseFirestore.instance;
+  final _controllers = <String, TextEditingController>{};
+  bool _saving = false;
+  bool _loaded = false;
+
+  // (label affiché, clé Firestore, prix par défaut)
+  static const _rooms = [
+    ('Standard', 'standard', 35000),
+    ('Premium', 'premium', 48580),
+    ('Prestige', 'prestige', 58580),
+    ('Deluxe', 'deluxe', 78580),
+    ('Suite', 'suite', 120000),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    for (final r in _rooms) {
+      _controllers[r.$2] = TextEditingController();
+    }
+    _loadPrices();
+  }
+
+  @override
+  void dispose() {
+    _controllers.forEach((_, c) => c.dispose());
+    super.dispose();
+  }
+
+  Future<void> _loadPrices() async {
+    try {
+      final doc =
+          await _firestore.collection('tarifs').doc('chambres').get();
+      for (final r in _rooms) {
+        final rawData = doc.exists ? doc.data() : null;
+        final val = rawData != null ? rawData[r.$2] : null;
+        // Utilise la valeur Firestore si non nulle et non zéro, sinon la valeur par défaut
+        _controllers[r.$2]!.text =
+            (val != null && (val as num) > 0) ? val.toString() : r.$3.toString();
+      }
+    } catch (_) {
+      for (final r in _rooms) {
+        _controllers[r.$2]!.text = r.$3.toString();
+      }
+    }
+    if (mounted) setState(() => _loaded = true);
+  }
+
+  Future<void> _savePrices() async {
+    setState(() => _saving = true);
+    try {
+      final data = <String, dynamic>{'updatedAt': FieldValue.serverTimestamp()};
+      for (final r in _rooms) {
+        data[r.$2] = int.tryParse(_controllers[r.$2]!.text) ?? r.$3;
+      }
+      await _firestore
+          .collection('tarifs')
+          .doc('chambres')
+          .set(data, SetOptions(merge: true));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('✅ Tarifs enregistrés avec succès'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('❌ Erreur : $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) {
+      return const Center(child: CircularProgressIndicator(color: _primary));
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Tarifs des chambres',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: _dark)),
+            const SizedBox(height: 6),
+            Text('Prix en FCFA par nuit',
+                style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+            const SizedBox(height: 24),
+            ...(_rooms.map((r) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Chambre ${r.$1}',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: _dark)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _controllers[r.$2],
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          prefixText: 'FCFA  ',
+                          hintText: r.$3.toString(),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide:
+                                  BorderSide(color: Colors.grey.shade200)),
+                          focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(
+                                  color: _primary, width: 1.5)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ))),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _saving ? null : _savePrices,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_rounded, size: 18),
+                label: Text(
+                    _saving ? 'Enregistrement…' : 'Enregistrer les tarifs',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PAGE PROFILS CLIENTS (onglet admin)
+// Liste les clients avec bouton "Voir profil complet"
+// ══════════════════════════════════════════════════════════════════════════════
+class _ClientsProfilsPage extends StatefulWidget {
+  const _ClientsProfilsPage();
+  @override
+  State<_ClientsProfilsPage> createState() => _ClientsProfilsPageState();
+}
+
+class _ClientsProfilsPageState extends State<_ClientsProfilsPage> {
+  static const _primary = Color(0xFF9B4610);
+  static const _dark = Color(0xFF4A2A10);
+  final _searchCtrl = TextEditingController();
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Alertes des clients",
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
-              const SizedBox(height: 10),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _buildFilterChip('Toutes', 'all'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Nouvelles', 'new'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('En cours', 'in_progress'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Résolues', 'resolved'),
-                  ],
-                ),
-              ),
-            ],
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'Rechercher un client...',
+              prefixIcon: const Icon(Icons.search, color: _primary),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              suffixIcon: _search.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); })
+                  : null,
+            ),
+            onChanged: (v) => setState(() => _search = v.toLowerCase()),
           ),
         ),
-
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
-                .collection('alerts')
-                .orderBy('timestamp', descending: true)
+                .collection('users')
+                .where('role', isEqualTo: 'client')
                 .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(child: Text('Erreur: ${snapshot.error}'));
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: _primary));
               }
-
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+              var docs = snap.data?.docs ?? [];
+              if (_search.isNotEmpty) {
+                docs = docs.where((d) {
+                  final data = d.data() as Map<String, dynamic>;
+                  final name = (data['name'] ?? data['displayName'] ?? '').toString().toLowerCase();
+                  final email = (data['email'] ?? '').toString().toLowerCase();
+                  return name.contains(_search) || email.contains(_search);
+                }).toList();
               }
-
-              final allAlerts = snapshot.data!.docs;
-
-              // Filtrage local au lieu de filtrage côté serveur
-              final filteredAlerts = _filterStatus == 'all'
-                  ? allAlerts
-                  : allAlerts.where((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      return data['status'] == _filterStatus;
-                    }).toList();
-
-              if (filteredAlerts.isEmpty) {
+              if (docs.isEmpty) {
                 return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.notifications_off,
-                        size: 60,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _filterStatus == 'all'
-                            ? "Aucune alerte"
-                            : _filterStatus == 'new'
-                            ? "Aucune nouvelle alerte"
-                            : _filterStatus == 'in_progress'
-                            ? "Aucune alerte en cours"
-                            : "Aucune alerte résolue",
-                        style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.people_outline, size: 64, color: Colors.grey[300]),
+                    const SizedBox(height: 12),
+                    Text('Aucun client trouvé', style: TextStyle(color: Colors.grey[500], fontSize: 16)),
+                  ]),
                 );
               }
-
               return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: filteredAlerts.length,
-                itemBuilder: (context, index) {
-                  final alert = filteredAlerts[index];
-                  final data = alert.data() as Map<String, dynamic>;
+                padding: const EdgeInsets.all(14),
+                itemCount: docs.length,
+                itemBuilder: (ctx, i) {
+                  final doc = docs[i];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final uid = doc.id;
+                  final name = data['name'] ?? data['displayName'] ??
+                      data['email']?.toString().split('@').first ?? 'Client';
+                  final email = data['email'] ?? '';
+                  final profileImage = data['profileImage'] as String?;
+                  final initial = name.isNotEmpty ? name[0].toUpperCase() : 'C';
 
-                  return AlertCard(
-                    alertId: alert.id,
-                    data: data,
-                    onStatusChanged: () {
-                      setState(() {});
-                    },
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 26,
+                                backgroundColor: _primary.withOpacity(0.12),
+                                backgroundImage: profileImage != null ? NetworkImage(profileImage) : null,
+                                child: profileImage == null
+                                    ? Text(initial,
+                                        style: const TextStyle(color: _primary, fontWeight: FontWeight.w700, fontSize: 18))
+                                    : null,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(name,
+                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: _dark)),
+                                    const SizedBox(height: 2),
+                                    Text(email,
+                                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: _primary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Text('CLIENT',
+                                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: _primary)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          const Divider(height: 1),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => UserProfileAdminPage(
+                                    userId: uid,
+                                    userName: name,
+                                    userEmail: email,
+                                    userRole: 'client',
+                                  ),
+                                ),
+                              ),
+                              icon: const Icon(Icons.person_search_rounded, size: 16),
+                              label: const Text('Voir le profil complet',
+                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                elevation: 0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 },
               );
@@ -896,450 +1276,5 @@ class _AlertsPageState extends State<AlertsPage> {
         ),
       ],
     );
-  }
-
-  Widget _buildFilterChip(String label, String value) {
-    return FilterChip(
-      label: Text(label),
-      selected: _filterStatus == value,
-      onSelected: (selected) {
-        setState(() {
-          _filterStatus = selected ? value : 'all';
-        });
-      },
-      backgroundColor: Colors.grey[300],
-      selectedColor: const Color(0xFF9B4610),
-      labelStyle: TextStyle(
-        color: _filterStatus == value ? Colors.white : Colors.black,
-      ),
-    );
-  }
-}
-
-// CARTE ALERTE AVEC INTERACTIONS
-class AlertCard extends StatefulWidget {
-  final String alertId;
-  final Map<String, dynamic> data;
-  final VoidCallback onStatusChanged;
-
-  const AlertCard({
-    super.key,
-    required this.alertId,
-    required this.data,
-    required this.onStatusChanged,
-  });
-
-  @override
-  State<AlertCard> createState() => _AlertCardState();
-}
-
-class _AlertCardState extends State<AlertCard> {
-  bool _isUpdating = false;
-
-  Future<void> _updateAlertStatus(String status) async {
-    setState(() {
-      _isUpdating = true;
-    });
-
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance
-          .collection('alerts')
-          .doc(widget.alertId)
-          .update({
-            'status': status,
-            'updatedBy': currentUser?.email ?? 'Réceptionniste',
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-
-      widget.onStatusChanged();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Alerte marquée comme ${_getStatusText(status)}'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      setState(() {
-        _isUpdating = false;
-      });
-    }
-  }
-
-  Future<void> _deleteAlert() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Confirmer la suppression"),
-        content: const Text(
-          "Êtes-vous sûr de vouloir supprimer cette alerte ?",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text("Annuler"),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Supprimer"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      setState(() {
-        _isUpdating = true;
-      });
-
-      try {
-        await FirebaseFirestore.instance
-            .collection('alerts')
-            .doc(widget.alertId)
-            .delete();
-
-        widget.onStatusChanged();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Alerte supprimée avec succès'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-        );
-      } finally {
-        setState(() {
-          _isUpdating = false;
-        });
-      }
-    }
-  }
-
-  String _getStatusText(String status) {
-    switch (status) {
-      case 'new':
-        return 'Nouvelle';
-      case 'in_progress':
-        return 'En cours';
-      case 'resolved':
-        return 'Résolue';
-      default:
-        return status;
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'new':
-        return Colors.red;
-      case 'in_progress':
-        return Colors.orange;
-      case 'resolved':
-        return Colors.green;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final data = widget.data;
-    final timestamp = data['timestamp'] as Timestamp?;
-    final updatedAt = data['updatedAt'] as Timestamp?;
-    final time = timestamp != null
-        ? DateFormat('dd/MM/yyyy à HH:mm').format(timestamp.toDate())
-        : 'Date inconnue';
-    final updatedTime = updatedAt != null
-        ? DateFormat('dd/MM/yyyy à HH:mm').format(updatedAt.toDate())
-        : null;
-
-    final status = data['status'] ?? 'new';
-    final roomNumber = data['roomNumber'] ?? 'Non spécifié';
-    final userEmail = data['userEmail'] ?? 'Non spécifié';
-    final userName = data['userName'] ?? 'Client';
-    final message = data['message'] ?? 'Aucune description';
-    final title = data['title'] ?? 'Alerte';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      color: Colors.white,
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _getStatusColor(status), width: 2),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Stack(
-          children: [
-            if (_isUpdating)
-              const Positioned.fill(
-                child: Center(child: CircularProgressIndicator()),
-              ),
-
-            Opacity(
-              opacity: _isUpdating ? 0.5 : 1.0,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _getStatusColor(status).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: _getStatusColor(status)),
-                        ),
-                        child: Text(
-                          _getStatusText(status),
-                          style: TextStyle(
-                            color: _getStatusColor(status),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(color: Colors.grey),
-                  const SizedBox(height: 12),
-                  _buildInfoRow("Client:", "$userName ($userEmail)"),
-                  _buildInfoRow("Chambre:", roomNumber),
-                  _buildInfoRow("Date:", time),
-                  if (updatedTime != null)
-                    _buildInfoRow("Dernière mise à jour:", updatedTime),
-                  if (data['updatedBy'] != null)
-                    _buildInfoRow("Traité par:", data['updatedBy']),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Description:",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(message, style: const TextStyle(fontSize: 12)),
-                  const SizedBox(height: 16),
-
-                  if (status != 'resolved')
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (status == 'new')
-                          ElevatedButton(
-                            onPressed: _isUpdating
-                                ? null
-                                : () => _updateAlertStatus('in_progress'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text("Prendre en charge"),
-                          ),
-                        if (status == 'in_progress')
-                          ElevatedButton(
-                            onPressed: _isUpdating
-                                ? null
-                                : () => _updateAlertStatus('resolved'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text("Marquer comme résolu"),
-                          ),
-                        IconButton(
-                          onPressed: _isUpdating ? null : _deleteAlert,
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                        ),
-                      ],
-                    ),
-
-                  if (status == 'resolved')
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        ElevatedButton(
-                          onPressed: _isUpdating
-                              ? null
-                              : () => _updateAlertStatus('in_progress'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text("Rouvrir l'alerte"),
-                        ),
-                        const SizedBox(width: 10),
-                        IconButton(
-                          onPressed: _isUpdating ? null : _deleteAlert,
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-          ),
-          const SizedBox(width: 8),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
-        ],
-      ),
-    );
-  }
-}
-
-// --- PAGE DE GESTION DES TARIFS ---
-class TarifsPage extends StatefulWidget {
-  const TarifsPage({super.key});
-
-  @override
-  State<TarifsPage> createState() => _TarifsPageState();
-}
-
-class _TarifsPageState extends State<TarifsPage> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final Map<String, TextEditingController> _controllers = {};
-
-  @override
-  void initState() {
-    super.initState();
-    // Initialiser les contrôleurs pour les types de chambres
-    _controllers['standard'] = TextEditingController();
-    _controllers['premium'] = TextEditingController();
-    _controllers['prestige'] = TextEditingController();
-    _loadPrices();
-  }
-
-  void _loadPrices() async {
-    final doc = await _firestore.collection('tarifs').doc('chambres').get();
-    if (doc.exists) {
-      setState(() {
-        _controllers['standard']!.text = doc.get('standard')?.toString() ?? '';
-        _controllers['premium']!.text = doc.get('premium')?.toString() ?? '';
-        _controllers['prestige']!.text = doc.get('prestige')?.toString() ?? '';
-      });
-    }
-  }
-
-  void _savePrices() async {
-    try {
-      await _firestore.collection('tarifs').doc('chambres').set({
-        'standard': int.parse(_controllers['standard']!.text),
-        'premium': int.parse(_controllers['premium']!.text),
-        'prestige': int.parse(_controllers['prestige']!.text),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tarifs mis à jour avec succès')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Gestion des Tarifs'),
-        backgroundColor: const Color(0xFF9B4610),
-        foregroundColor: Colors.white,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Tarifs des Chambres (FCFA/nuit)',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 20),
-            _buildPriceField('Chambre Standard', _controllers['standard']!),
-            _buildPriceField('Chambre Premium', _controllers['premium']!),
-            _buildPriceField('Chambre Prestige', _controllers['prestige']!),
-            const SizedBox(height: 30),
-            Center(
-              child: ElevatedButton(
-                onPressed: _savePrices,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF9B4610),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 40,
-                    vertical: 15,
-                  ),
-                ),
-                child: const Text('Enregistrer les tarifs'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPriceField(String label, TextEditingController controller) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          prefixText: 'FCFA ',
-        ),
-        keyboardType: TextInputType.number,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controllers.forEach((key, controller) => controller.dispose());
-    super.dispose();
   }
 }
